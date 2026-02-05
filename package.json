@@ -1,0 +1,14 @@
+{
+  "name": "skillguard",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run src/cli.ts",
+    "build": "bun build src/cli.ts --compile --outfile skillguard"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "yaml": "^2.4.2"
+  }
+}

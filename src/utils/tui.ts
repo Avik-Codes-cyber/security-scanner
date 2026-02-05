@@ -1,0 +1,218 @@
+import type { Finding, Severity } from "../scanner/types.ts";
+import { summarizeFindings } from "../scanner/report.ts";
+
+const COLOR = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[38;5;102m",
+  text: "\x1b[38;5;145m",
+  gray: "\x1b[90m",
+  red: "\x1b[31m",
+  yellow: "\x1b[33m",
+  magenta: "\x1b[35m",
+  cyan: "\x1b[36m",
+  blue: "\x1b[34m",
+};
+
+const LOGO_LINES = [
+  "███████╗██╗  ██╗██╗██╗     ██╗     ███████╗",
+  "██╔════╝██║ ██╔╝██║██║     ██║     ██╔════╝",
+  "███████╗█████╔╝ ██║██║     ██║     ███████╗",
+  "╚════██║██╔═██╗ ██║██║     ██║     ╚════██║",
+  "███████║██║  ██╗██║███████╗███████╗███████║",
+  "╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝",
+];
+
+const GRAYS = [
+  "\x1b[38;5;250m",
+  "\x1b[38;5;248m",
+  "\x1b[38;5;245m",
+  "\x1b[38;5;243m",
+  "\x1b[38;5;240m",
+  "\x1b[38;5;238m",
+];
+
+function colorizeSeverity(sev: Severity): string {
+  switch (sev) {
+    case "CRITICAL":
+      return `${COLOR.red}${sev}${COLOR.reset}`;
+    case "HIGH":
+      return `${COLOR.magenta}${sev}${COLOR.reset}`;
+    case "MEDIUM":
+      return `${COLOR.yellow}${sev}${COLOR.reset}`;
+    case "LOW":
+      return `${COLOR.cyan}${sev}${COLOR.reset}`;
+    default:
+      return sev;
+  }
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function visibleLength(text: string): number {
+  return stripAnsi(text).length;
+}
+
+function truncate(text: string, max: number): string {
+  if (visibleLength(text) <= max) return text;
+  const clean = stripAnsi(text);
+  return clean.slice(0, Math.max(0, max - 1)) + "…";
+}
+
+function pad(text: string, width: number): string {
+  const len = visibleLength(text);
+  if (len >= width) return text;
+  return text + " ".repeat(width - len);
+}
+
+function line(text: string, width: number): string {
+  return `│ ${pad(text, width - 2)} │`;
+}
+
+function divider(width: number, left = "├", mid = "─", right = "┤"): string {
+  return `${left}${mid.repeat(width)}${right}`;
+}
+
+function progressBar(current: number, total: number, width: number): string {
+  if (total <= 0) return "";
+  const ratio = Math.min(1, Math.max(0, current / total));
+  const filled = Math.round(width * ratio);
+  const empty = Math.max(0, width - filled);
+  return `${COLOR.blue}${"█".repeat(filled)}${COLOR.gray}${"░".repeat(empty)}${COLOR.reset}`;
+}
+
+function center(text: string, width: number): string {
+  const len = visibleLength(text);
+  if (len >= width) return text;
+  const left = Math.floor((width - len) / 2);
+  const right = width - len - left;
+  return " ".repeat(left) + text + " ".repeat(right);
+}
+
+export type Tui = {
+  start: (totalFiles: number) => void;
+  onFile: (filePath: string) => void;
+  onFindings: (newFindings: Finding[]) => void;
+  finish: () => void;
+};
+
+export function createTui(enabled: boolean): Tui {
+  if (!enabled) {
+    return {
+      start: () => {},
+      onFile: () => {},
+      onFindings: () => {},
+      finish: () => {},
+    };
+  }
+
+  let totalFiles = 0;
+  let scannedFiles = 0;
+  let currentFile = "";
+  const findings: Finding[] = [];
+  let scheduled = false;
+
+  const render = () => {
+    scheduled = false;
+    const counts = summarizeFindings(findings);
+
+    const termWidth = Math.max(90, process.stdout.columns ?? 120);
+    const width = Math.max(90, Math.min(termWidth, 140));
+    const innerWidth = width - 2;
+
+    const logoLines = LOGO_LINES.map((lineText, i) => {
+      const color = GRAYS[i % GRAYS.length];
+      return center(`${color}${lineText}${COLOR.reset}`, innerWidth);
+    });
+
+    const tagline = center(`${COLOR.dim}The open agent skills ecosystem${COLOR.reset}`, innerWidth);
+
+    const headerText = `${COLOR.bold}Skillguard Scan${COLOR.reset}`;
+    const statusText = `${COLOR.dim}Files${COLOR.reset} ${scannedFiles}/${totalFiles}`;
+    const headerLine = pad(`${headerText}  ${statusText}`, innerWidth - 2);
+
+    const barWidth = Math.max(20, innerWidth - 30);
+    const bar = progressBar(scannedFiles, totalFiles, barWidth);
+    const progressText = `Progress: ${bar} ${scannedFiles}/${totalFiles}`;
+
+    const currentText = currentFile
+      ? `${COLOR.dim}Current${COLOR.reset}: ${truncate(currentFile, innerWidth - 11)}`
+      : `${COLOR.dim}Current${COLOR.reset}: -`;
+
+    const summary = `Findings: ${findings.length} | ${COLOR.red}CRITICAL${COLOR.reset}:${counts.CRITICAL} ${COLOR.magenta}HIGH${COLOR.reset}:${counts.HIGH} ${COLOR.yellow}MEDIUM${COLOR.reset}:${counts.MEDIUM} ${COLOR.cyan}LOW${COLOR.reset}:${counts.LOW}`;
+
+    const colSev = 10;
+    const colRule = 26;
+    const colFile = Math.max(30, Math.min(64, Math.floor(innerWidth * 0.48)));
+    const colMsg = Math.max(20, innerWidth - (colSev + colFile + colRule + 6));
+
+    const tableHeader = [
+      pad(`${COLOR.bold}Severity${COLOR.reset}`, colSev),
+      pad(`${COLOR.bold}File${COLOR.reset}`, colFile),
+      pad(`${COLOR.bold}Rule${COLOR.reset}`, colRule),
+      pad(`${COLOR.bold}Message${COLOR.reset}`, colMsg),
+    ].join("  ");
+
+    const rows = findings.slice(0, 12).map((finding) => {
+      return [
+        pad(colorizeSeverity(finding.severity), colSev),
+        pad(truncate(finding.file, colFile), colFile),
+        pad(truncate(finding.ruleId, colRule), colRule),
+        pad(truncate(finding.message, colMsg), colMsg),
+      ].join("  ");
+    });
+
+    const body = rows.length > 0 ? rows : [pad(`${COLOR.gray}No findings yet.${COLOR.reset}`, colSev + colFile + colRule + colMsg + 6)];
+
+    const top = `┌${"─".repeat(innerWidth)}┐`;
+    const mid = `├${"─".repeat(innerWidth)}┤`;
+    const bottom = `└${"─".repeat(innerWidth)}┘`;
+
+    const output = [
+      "",
+      ...logoLines,
+      tagline,
+      "",
+      top,
+      line(headerLine, innerWidth),
+      line(progressText, innerWidth),
+      line(currentText, innerWidth),
+      line(summary, innerWidth),
+      mid,
+      line(tableHeader, innerWidth),
+      ...body.map((row) => line(row, innerWidth)),
+      bottom,
+    ].join("\n");
+
+    process.stdout.write("\x1b[2J\x1b[H" + output + "\n");
+  };
+
+  const scheduleRender = () => {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(render, 60);
+  };
+
+  return {
+    start(total) {
+      totalFiles = total;
+      scheduleRender();
+    },
+    onFile(filePath) {
+      scannedFiles += 1;
+      currentFile = filePath;
+      scheduleRender();
+    },
+    onFindings(newFindings) {
+      if (newFindings.length) {
+        findings.push(...newFindings);
+        scheduleRender();
+      }
+    },
+    finish() {
+      render();
+    },
+  };
+}
