@@ -187,10 +187,6 @@ export function createTui(enabled: boolean): Tui {
     const bar = progressBar(scannedFiles, totalFiles, barWidth);
     const progressText = `Progress: ${bar} ${scannedFiles}/${totalFiles}`;
 
-    const currentText = currentFile
-      ? `${COLOR.dim}Scanning${COLOR.reset}: ${currentFile}`
-      : `${COLOR.dim}Scanning${COLOR.reset}: -`;
-
     const skillLine = currentSkillName
       ? `${COLOR.dim}Skill${COLOR.reset}: ${currentSkillName} (${currentSkillIndex}/${currentSkillTotal})  ${COLOR.dim}Skill Files${COLOR.reset}: ${currentSkillScanned}/${currentSkillFiles}`
       : `${COLOR.dim}Skill${COLOR.reset}: -`;
@@ -276,7 +272,6 @@ export function createTui(enabled: boolean): Tui {
       line(headerLine, innerWidth),
       line(progressText, innerWidth),
       line(skillLine, innerWidth),
-      line(currentText, innerWidth),
       line(summary, innerWidth),
       mid,
       line(tableHeader, innerWidth),

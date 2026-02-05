@@ -7,6 +7,7 @@ import { loadRulesFromFile, loadRulesFromText } from "./scanner/rule-engine.ts";
 import { scanFile } from "./scanner/scan-file.ts";
 import type { Finding, Severity, ScanOptions } from "./scanner/types.ts";
 import { applyMetaAnalyzer, formatSummary, renderTable, shouldFail, summarizeFindings, toJson } from "./scanner/report.ts";
+import { applyFixes } from "./scanner/fix.ts";
 import { toSarif } from "./scanner/sarif.ts";
 import { createTui } from "./utils/tui.ts";
 import { dirExists, isInSkippedDir, sanitizePath } from "./utils/fs.ts";
@@ -172,7 +173,10 @@ async function collectFiles(scanRoots: string[], options?: { includeDocs?: boole
 
 async function runScan(targetPath: string, options: ScanOptions) {
   if (options.fix) {
-    console.warn("Note: --fix is not implemented yet. Running in scan-only mode.");
+    console.warn("Note: --fix will comment out matched lines in supported file types.");
+  }
+  if (options.fix && options.format === "sarif") {
+    console.warn("Note: --fix with --format sarif will still apply fixes before reporting.");
   }
   if (options.useLlm) {
     console.warn("Note: --use-llm is reserved and not implemented yet.");
@@ -263,6 +267,10 @@ async function runScan(targetPath: string, options: ScanOptions) {
     await Promise.all(Array.from({ length: concurrency }, worker));
 
     const filteredSkillFindings = options.enableMeta ? applyMetaAnalyzer(skillFindings) : skillFindings;
+
+    if (options.fix && filteredSkillFindings.length > 0) {
+      await applyFixes(filteredSkillFindings);
+    }
     if (options.enableMeta) {
       tui.setCurrentFindings(filteredSkillFindings);
     }

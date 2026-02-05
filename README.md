@@ -21,6 +21,7 @@ bun run src/cli.ts scan . --use-behavioral --enable-meta
 bun run src/cli.ts scan . --format sarif --output results.sarif
 bun run src/cli.ts scan-all ./skills --recursive --use-behavioral
 bun run src/cli.ts scan-all ./skills --fail-on-findings --format sarif --output results.sarif
+bun run src/cli.ts scan . --fix
 bun run src/cli.ts watch .
 ```
 
@@ -51,7 +52,7 @@ MEDIUM    skills/baz/package.json       SUPPLY_CHAIN_INSTALL_SCRIPT        Auto-
 - The TUI activates automatically when running in a TTY (disabled for `--json`).
 - Rules live at `src/rules/signatures.yaml`.
 - The compiled binary embeds rules; you can override with `SKILLGUARD_RULES=/path/to/signatures.yaml`.
-- `--fix` is reserved for a future auto-fix mode and currently runs in scan-only mode.
+- `--fix` comments out matched lines in supported file types (`.md`, `.txt`, `.rst`, `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.conf`, `.py`, `.sh`, `.bash`, `.js`, `.ts`, `.mjs`, `.cjs`).\n+  JSON files are skipped (no comments in JSON). Heuristic-only findings are also skipped.
 - `--system` adds common user-level skill folders (e.g., `~/.codex/skills`, `~/.cursor/skills`).
 - `--skills-dir` lets you add extra roots to scan (repeatable).
 - `watch` mode prints a notification when new findings appear.
