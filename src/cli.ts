@@ -268,12 +268,15 @@ async function runScan(targetPath: string, options: ScanOptions) {
     }
 
     findings.push(...filteredSkillFindings);
-    tui.completeSkill({
-      name: plan.name,
-      files: plan.files.length,
-      findings: filteredSkillFindings.length,
-      counts: summarizeFindings(filteredSkillFindings),
-    });
+    tui.completeSkill(
+      {
+        name: plan.name,
+        files: plan.files.length,
+        findings: filteredSkillFindings.length,
+        counts: summarizeFindings(filteredSkillFindings),
+      },
+      filteredSkillFindings
+    );
   }
 
   const elapsedMs = Date.now() - start;

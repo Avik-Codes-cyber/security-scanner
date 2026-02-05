@@ -132,7 +132,7 @@ export type Tui = {
   onFile: (filePath: string) => void;
   onFindings: (newFindings: Finding[]) => void;
   setCurrentFindings: (findings: Finding[]) => void;
-  completeSkill: (summary: SkillSummary) => void;
+  completeSkill: (summary: SkillSummary, findings?: Finding[]) => void;
   finish: () => void;
 };
 
@@ -156,13 +156,16 @@ export function createTui(enabled: boolean): Tui {
   let currentSkillFiles = 0;
   let currentSkillScanned = 0;
   const currentFindings: Finding[] = [];
+  const lastFindings: Finding[] = [];
+  let lastFindingsLabel = "";
   const completed: SkillSummary[] = [];
   let scheduled: NodeJS.Timeout | null = null;
   let finished = false;
 
   const render = () => {
     scheduled = null;
-    const counts = summarizeFindings(currentFindings);
+    const displayFindings = currentFindings.length > 0 ? currentFindings : lastFindings;
+    const counts = summarizeFindings(displayFindings);
 
     const termWidth = Math.max(90, process.stdout.columns ?? 120);
     const width = Math.max(90, Math.min(termWidth, 140));
@@ -192,7 +195,7 @@ export function createTui(enabled: boolean): Tui {
       ? `${COLOR.dim}Skill${COLOR.reset}: ${currentSkillName} (${currentSkillIndex}/${currentSkillTotal})  ${COLOR.dim}Skill Files${COLOR.reset}: ${currentSkillScanned}/${currentSkillFiles}`
       : `${COLOR.dim}Skill${COLOR.reset}: -`;
 
-    const summary = `Findings: ${currentFindings.length} | ${COLOR.red}CRITICAL${COLOR.reset}:${counts.CRITICAL} ${COLOR.magenta}HIGH${COLOR.reset}:${counts.HIGH} ${COLOR.yellow}MEDIUM${COLOR.reset}:${counts.MEDIUM} ${COLOR.cyan}LOW${COLOR.reset}:${counts.LOW}`;
+    const summary = `Findings: ${displayFindings.length} | ${COLOR.red}CRITICAL${COLOR.reset}:${counts.CRITICAL} ${COLOR.magenta}HIGH${COLOR.reset}:${counts.HIGH} ${COLOR.yellow}MEDIUM${COLOR.reset}:${counts.MEDIUM} ${COLOR.cyan}LOW${COLOR.reset}:${counts.LOW}`;
 
     const colSev = 10;
     const colRule = 26;
@@ -207,7 +210,7 @@ export function createTui(enabled: boolean): Tui {
     ].join("  ");
 
     const rows: string[] = [];
-    for (const finding of currentFindings) {
+    for (const finding of displayFindings) {
       const severity = colorizeSeverity(finding.severity);
       const fileLines = wrapText(finding.file, colFile);
       const ruleLines = wrapText(finding.ruleId, colRule);
@@ -325,8 +328,13 @@ export function createTui(enabled: boolean): Tui {
       currentFindings.push(...findings);
       scheduleRender();
     },
-    completeSkill(summary) {
+    completeSkill(summary, findings = []) {
       completed.push(summary);
+      if (findings.length > 0) {
+        lastFindings.length = 0;
+        lastFindings.push(...findings);
+        lastFindingsLabel = summary.name;
+      }
       scheduleRender();
     },
     finish() {
