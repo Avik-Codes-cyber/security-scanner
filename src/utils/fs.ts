@@ -20,6 +20,10 @@ export async function dirExists(path: string): Promise<boolean> {
   }
 }
 
+export function sanitizePath(path: string): string {
+  return path.replace(/\0/g, "");
+}
+
 export async function readText(path: string, maxBytes = DEFAULT_MAX_BYTES): Promise<string> {
   const file = Bun.file(path);
   const size = file.size;

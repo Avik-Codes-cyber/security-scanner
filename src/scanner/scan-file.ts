@@ -1,6 +1,6 @@
 import { extname, basename } from "path";
 import type { CompiledRule } from "./rule-engine.ts";
-import type { Finding } from "./types.ts";
+import type { Finding, ScanOptions } from "./types.ts";
 import { isProbablyBinary, readBytes, readText } from "../utils/fs.ts";
 import { scanContent } from "./rule-engine.ts";
 import { runHeuristics } from "./heuristics.ts";
@@ -24,7 +24,7 @@ export function detectFileType(filePath: string): string | null {
   if (base === "manifest.json") return "manifest";
   if (base === "package.json") return "json";
 
-  if (ext === ".md") return "markdown";
+  if (ext === ".md" || ext === ".mdx" || ext === ".txt" || ext === ".rst") return "markdown";
   if (ext === ".py") return "python";
   if (ext === ".ts") return "typescript";
   if (ext === ".js" || ext === ".mjs" || ext === ".cjs") return "javascript";
@@ -34,7 +34,7 @@ export function detectFileType(filePath: string): string | null {
   return null;
 }
 
-export async function scanFile(filePath: string, rules: CompiledRule[]): Promise<Finding[]> {
+export async function scanFile(filePath: string, rules: CompiledRule[], options?: ScanOptions): Promise<Finding[]> {
   const fileType = detectFileType(filePath);
   if (!fileType) return [];
 
@@ -48,7 +48,7 @@ export async function scanFile(filePath: string, rules: CompiledRule[]): Promise
 
   const content = await readText(filePath, MAX_BYTES);
   const findings = scanContent(content, filePath, fileType, rules);
-  const heuristicFindings = runHeuristics(filePath, content, fileType);
+  const heuristicFindings = options?.useBehavioral ? runHeuristics(filePath, content, fileType) : [];
 
   return [...findings, ...heuristicFindings];
 }

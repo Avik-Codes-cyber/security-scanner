@@ -15,12 +15,12 @@ const COLOR = {
 };
 
 const LOGO_LINES = [
-  "███████╗██╗  ██╗██╗██╗     ██╗     ███████╗",
-  "██╔════╝██║ ██╔╝██║██║     ██║     ██╔════╝",
-  "███████╗█████╔╝ ██║██║     ██║     ███████╗",
-  "╚════██║██╔═██╗ ██║██║     ██║     ╚════██║",
-  "███████║██║  ██╗██║███████╗███████╗███████║",
-  "╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝",
+  "███████╗██╗  ██╗██╗██╗     ██╗      ███████╗ ██████╗ █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗ ",
+  "██╔════╝██║ ██╔╝██║██║     ██║      ██╔════╝██╔════╝██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗",
+  "███████╗█████╔╝ ██║██║     ██║      ███████╗██║     ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝",
+  "╚════██║██╔═██╗ ██║██║     ██║      ╚════██║██║     ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗",
+  "███████║██║  ██╗██║███████╗███████╗ ███████║╚██████╗██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║",
+  "╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝ ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝",
 ];
 
 const GRAYS = [
@@ -55,12 +55,6 @@ function visibleLength(text: string): number {
   return stripAnsi(text).length;
 }
 
-function truncate(text: string, max: number): string {
-  if (visibleLength(text) <= max) return text;
-  const clean = stripAnsi(text);
-  return clean.slice(0, Math.max(0, max - 1)) + "…";
-}
-
 function pad(text: string, width: number): string {
   const len = visibleLength(text);
   if (len >= width) return text;
@@ -83,6 +77,40 @@ function progressBar(current: number, total: number, width: number): string {
   return `${COLOR.blue}${"█".repeat(filled)}${COLOR.gray}${"░".repeat(empty)}${COLOR.reset}`;
 }
 
+function wrapText(text: string, width: number): string[] {
+  const clean = stripAnsi(text);
+  if (width <= 1) return [clean];
+
+  const words = clean.split(/\s+/g).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    if (current.length === 0 && word.length > width) {
+      // Hard-wrap long tokens
+      let chunk = word;
+      while (chunk.length > width) {
+        lines.push(chunk.slice(0, width));
+        chunk = chunk.slice(width);
+      }
+      current = chunk;
+      continue;
+    }
+
+    const next = current.length === 0 ? word : `${current} ${word}`;
+    if (next.length <= width) {
+      current = next;
+    } else {
+      if (current.length > 0) lines.push(current);
+      current = word;
+    }
+  }
+
+  if (current.length > 0) lines.push(current);
+  if (lines.length === 0) lines.push(clean.slice(0, width));
+  return lines;
+}
+
 function center(text: string, width: number): string {
   const len = visibleLength(text);
   if (len >= width) return text;
@@ -92,7 +120,7 @@ function center(text: string, width: number): string {
 }
 
 export type Tui = {
-  start: (totalFiles: number) => void;
+  start: (totalFiles: number, totalSkills?: number, rootPath?: string) => void;
   onFile: (filePath: string) => void;
   onFindings: (newFindings: Finding[]) => void;
   finish: () => void;
@@ -101,21 +129,23 @@ export type Tui = {
 export function createTui(enabled: boolean): Tui {
   if (!enabled) {
     return {
-      start: () => {},
-      onFile: () => {},
-      onFindings: () => {},
-      finish: () => {},
+      start: () => { },
+      onFile: () => { },
+      onFindings: () => { },
+      finish: () => { },
     };
   }
 
   let totalFiles = 0;
+  let totalSkills = 0;
   let scannedFiles = 0;
   let currentFile = "";
   const findings: Finding[] = [];
-  let scheduled = false;
+  let scheduled: NodeJS.Timeout | null = null;
+  let finished = false;
 
   const render = () => {
-    scheduled = false;
+    scheduled = null;
     const counts = summarizeFindings(findings);
 
     const termWidth = Math.max(90, process.stdout.columns ?? 120);
@@ -127,19 +157,20 @@ export function createTui(enabled: boolean): Tui {
       return center(`${color}${lineText}${COLOR.reset}`, innerWidth);
     });
 
-    const tagline = center(`${COLOR.dim}The open agent skills ecosystem${COLOR.reset}`, innerWidth);
+    const tagline = center(`${COLOR.dim}Agent skill security scanner${COLOR.reset}`, innerWidth);
 
-    const headerText = `${COLOR.bold}Skillguard Scan${COLOR.reset}`;
+    const headerText = `${COLOR.bold}Skill Scanner${COLOR.reset}`;
+    const skillsText = `${COLOR.dim}Skills${COLOR.reset} ${totalSkills}`;
     const statusText = `${COLOR.dim}Files${COLOR.reset} ${scannedFiles}/${totalFiles}`;
-    const headerLine = pad(`${headerText}  ${statusText}`, innerWidth - 2);
+    const headerLine = pad(`${headerText}  ${skillsText}  ${statusText}`, innerWidth - 2);
 
     const barWidth = Math.max(20, innerWidth - 30);
     const bar = progressBar(scannedFiles, totalFiles, barWidth);
     const progressText = `Progress: ${bar} ${scannedFiles}/${totalFiles}`;
 
     const currentText = currentFile
-      ? `${COLOR.dim}Current${COLOR.reset}: ${truncate(currentFile, innerWidth - 11)}`
-      : `${COLOR.dim}Current${COLOR.reset}: -`;
+      ? `${COLOR.dim}Scanning${COLOR.reset}: ${currentFile}`
+      : `${COLOR.dim}Scanning${COLOR.reset}: -`;
 
     const summary = `Findings: ${findings.length} | ${COLOR.red}CRITICAL${COLOR.reset}:${counts.CRITICAL} ${COLOR.magenta}HIGH${COLOR.reset}:${counts.HIGH} ${COLOR.yellow}MEDIUM${COLOR.reset}:${counts.MEDIUM} ${COLOR.cyan}LOW${COLOR.reset}:${counts.LOW}`;
 
@@ -155,16 +186,37 @@ export function createTui(enabled: boolean): Tui {
       pad(`${COLOR.bold}Message${COLOR.reset}`, colMsg),
     ].join("  ");
 
-    const rows = findings.slice(0, 12).map((finding) => {
-      return [
-        pad(colorizeSeverity(finding.severity), colSev),
-        pad(truncate(finding.file, colFile), colFile),
-        pad(truncate(finding.ruleId, colRule), colRule),
-        pad(truncate(finding.message, colMsg), colMsg),
-      ].join("  ");
-    });
+    const rows: string[] = [];
+    for (const finding of findings) {
+      const severity = colorizeSeverity(finding.severity);
+      const fileLines = wrapText(finding.file, colFile);
+      const ruleLines = wrapText(finding.ruleId, colRule);
+      const msgLines = wrapText(finding.message, colMsg);
+      const lineCount = Math.max(fileLines.length, ruleLines.length, msgLines.length, 1);
 
-    const body = rows.length > 0 ? rows : [pad(`${COLOR.gray}No findings yet.${COLOR.reset}`, colSev + colFile + colRule + colMsg + 6)];
+      for (let i = 0; i < lineCount; i++) {
+        rows.push(
+          [
+            pad(i === 0 ? severity : "", colSev),
+            pad(fileLines[i] ?? "", colFile),
+            pad(ruleLines[i] ?? "", colRule),
+            pad(msgLines[i] ?? "", colMsg),
+          ].join("  ")
+        );
+      }
+    }
+
+    const body =
+      rows.length > 0
+        ? rows
+        : [
+            [
+              pad("", colSev),
+              pad("", colFile),
+              pad("", colRule),
+              pad(`${COLOR.gray}No findings yet.${COLOR.reset}`, colMsg),
+            ].join("  "),
+          ];
 
     const top = `┌${"─".repeat(innerWidth)}┐`;
     const mid = `├${"─".repeat(innerWidth)}┤`;
@@ -190,14 +242,15 @@ export function createTui(enabled: boolean): Tui {
   };
 
   const scheduleRender = () => {
+    if (finished) return;
     if (scheduled) return;
-    scheduled = true;
-    setTimeout(render, 60);
+    scheduled = setTimeout(render, 60);
   };
 
   return {
-    start(total) {
+    start(total, skills = 0) {
       totalFiles = total;
+      totalSkills = skills;
       scheduleRender();
     },
     onFile(filePath) {
@@ -212,7 +265,12 @@ export function createTui(enabled: boolean): Tui {
       }
     },
     finish() {
+      if (scheduled) {
+        clearTimeout(scheduled);
+        scheduled = null;
+      }
       render();
+      finished = true;
     },
   };
 }

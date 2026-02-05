@@ -37,6 +37,12 @@ export type ScanOptions = {
   fix?: boolean;
   includeSystem?: boolean;
   extraSkillDirs?: string[];
+  useBehavioral?: boolean;
+  useLlm?: boolean;
+  useAiDefense?: boolean;
+  enableMeta?: boolean;
+  format?: "table" | "json" | "sarif";
+  output?: string;
 };
 
 export type ScanResult = {

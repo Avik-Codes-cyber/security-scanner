@@ -17,6 +17,10 @@ bun run src/cli.ts scan . --fail-on high
 bun run src/cli.ts scan . --fix
 bun run src/cli.ts scan . --system
 bun run src/cli.ts scan . --skills-dir /path/to/skills
+bun run src/cli.ts scan . --use-behavioral --enable-meta
+bun run src/cli.ts scan . --format sarif --output results.sarif
+bun run src/cli.ts scan-all ./skills --recursive --use-behavioral
+bun run src/cli.ts scan-all ./skills --fail-on-findings --format sarif --output results.sarif
 bun run src/cli.ts watch .
 ```
 
@@ -51,3 +55,5 @@ MEDIUM    skills/baz/package.json       SUPPLY_CHAIN_INSTALL_SCRIPT        Auto-
 - `--system` adds common user-level skill folders (e.g., `~/.codex/skills`, `~/.cursor/skills`).
 - `--skills-dir` lets you add extra roots to scan (repeatable).
 - `watch` mode prints a notification when new findings appear.
+- `--use-llm` and `--use-aidefense` are reserved flags (not implemented yet).
+- `--enable-meta` applies a lightweight meta-analyzer to reduce duplicate findings.

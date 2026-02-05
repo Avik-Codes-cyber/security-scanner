@@ -2,7 +2,7 @@ import { readdir } from "fs/promises";
 import { basename, dirname, join, resolve, isAbsolute } from "path";
 import matter from "gray-matter";
 import type { Skill } from "./types.ts";
-import { fileExists, isInSkippedDir, readText } from "../utils/fs";
+import { dirExists, fileExists, isInSkippedDir, readText, sanitizePath } from "../utils/fs.ts";
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
 
@@ -96,18 +96,23 @@ async function loadSkill(skillDir: string): Promise<Skill | null> {
 
 async function scanImmediateDirs(searchRoot: string): Promise<Skill[]> {
   const skills: Skill[] = [];
+  const sanitizedRoot = sanitizePath(searchRoot);
 
-  const rootSkill = await loadSkill(searchRoot);
+  if (!(await dirExists(sanitizedRoot))) {
+    return skills;
+  }
+
+  const rootSkill = await loadSkill(sanitizedRoot);
   if (rootSkill) {
     skills.push(rootSkill);
   }
 
   try {
-    const entries = await readdir(searchRoot, { withFileTypes: true });
+    const entries = await readdir(sanitizedRoot, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (SKIP_DIRS.includes(entry.name)) continue;
-      const skill = await loadSkill(join(searchRoot, entry.name));
+      const skill = await loadSkill(join(sanitizedRoot, entry.name));
       if (skill) skills.push(skill);
     }
   } catch {
@@ -120,11 +125,12 @@ async function scanImmediateDirs(searchRoot: string): Promise<Skill[]> {
 async function findAllSkills(basePath: string): Promise<Skill[]> {
   const skills: Skill[] = [];
   const seenPaths = new Set<string>();
+  const sanitizedBase = sanitizePath(basePath);
 
   const glob = new Bun.Glob("**/SKILL.md");
-  for await (const match of glob.scan({ cwd: basePath, onlyFiles: true })) {
+  for await (const match of glob.scan({ cwd: sanitizedBase, onlyFiles: true })) {
     if (isInSkippedDir(match, SKIP_DIRS)) continue;
-    const skillDir = dirname(join(basePath, match));
+    const skillDir = dirname(join(sanitizedBase, match));
     if (seenPaths.has(skillDir)) continue;
     const skill = await loadSkill(skillDir);
     if (skill) {
@@ -146,7 +152,7 @@ function getHomeDir(): string | null {
 }
 
 export function getSearchRoots(basePath: string, options?: DiscoverSkillsOptions): string[] {
-  const resolved = resolve(basePath);
+  const resolved = sanitizePath(resolve(basePath));
   const roots: string[] = [resolved];
 
   for (const dir of LOCAL_SKILL_DIRS) {
@@ -156,7 +162,8 @@ export function getSearchRoots(basePath: string, options?: DiscoverSkillsOptions
   if (options?.extraSkillDirs?.length) {
     for (const extra of options.extraSkillDirs) {
       if (!extra) continue;
-      roots.push(isAbsolute(extra) ? extra : resolve(resolved, extra));
+      const resolvedExtra = isAbsolute(extra) ? extra : resolve(resolved, extra);
+      roots.push(sanitizePath(resolvedExtra));
     }
   }
 
@@ -164,7 +171,7 @@ export function getSearchRoots(basePath: string, options?: DiscoverSkillsOptions
     const home = getHomeDir();
     if (home) {
       for (const dir of SYSTEM_SKILL_DIRS) {
-        roots.push(resolve(home, dir));
+        roots.push(sanitizePath(resolve(home, dir)));
       }
     }
   }
@@ -189,6 +196,9 @@ export async function discoverSkills(basePath: string, options?: DiscoverSkillsO
 
   if (skills.length === 0 || options?.fullDepth) {
     for (const searchRoot of searchRoots) {
+      if (!(await dirExists(searchRoot))) {
+        continue;
+      }
       const fallback = await findAllSkills(searchRoot);
       for (const skill of fallback) {
         if (!seen.has(skill.path)) {

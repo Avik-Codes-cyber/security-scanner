@@ -6,13 +6,21 @@ import { discoverSkills, getSearchRoots } from "./scanner/discover.ts";
 import { loadRulesFromFile, loadRulesFromText } from "./scanner/rule-engine.ts";
 import { scanFile } from "./scanner/scan-file.ts";
 import type { Finding, Severity, ScanOptions } from "./scanner/types.ts";
-import { formatSummary, renderTable, shouldFail, toJson } from "./scanner/report.ts";
+import { applyMetaAnalyzer, formatSummary, renderTable, shouldFail, toJson } from "./scanner/report.ts";
+import { toSarif } from "./scanner/sarif.ts";
 import { createTui } from "./utils/tui.ts";
-import { dirExists, isInSkippedDir } from "./utils/fs.ts";
+import { dirExists, isInSkippedDir, sanitizePath } from "./utils/fs.ts";
 import { signaturesYaml } from "./rules/signatures.ts";
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
 const SCAN_EXTENSIONS = new Set([".py", ".ts", ".js", ".mjs", ".cjs", ".sh", ".bash"]);
+const SCAN_EXTENSIONS_SKILL = new Set([
+  ...SCAN_EXTENSIONS,
+  ".md",
+  ".mdx",
+  ".txt",
+  ".rst",
+]);
 const SPECIAL_FILES = new Set(["SKILL.md", "manifest.json", "package.json"]);
 const BINARY_EXTENSIONS = new Set([".exe", ".bin", ".dll", ".so", ".dylib", ".jar"]);
 
@@ -34,16 +42,50 @@ function parseArgs(argv: string[]) {
     json: false,
     tui: undefined,
     extraSkillDirs: [],
+    useBehavioral: true,
+    format: "table",
   };
 
   while (args.length) {
     const arg = args.shift()!;
-    if (arg === "--json") options.json = true;
+    if (arg === "--json") {
+      options.json = true;
+      options.format = "json";
+    }
     else if (arg === "--tui") options.tui = true;
     else if (arg === "--no-tui") options.tui = false;
     else if (arg === "--fix") options.fix = true;
     else if (arg === "--system" || arg === "--include-system") options.includeSystem = true;
-    else if (arg === "--full-depth") options.fullDepth = true;
+    else if (arg === "--full-depth" || arg === "--recursive") options.fullDepth = true;
+    else if (arg === "--use-behavioral") options.useBehavioral = true;
+    else if (arg === "--no-behavioral") options.useBehavioral = false;
+    else if (arg === "--use-llm") options.useLlm = true;
+    else if (arg === "--use-aidefense") options.useAiDefense = true;
+    else if (arg === "--use-all") {
+      options.useBehavioral = true;
+      options.useLlm = true;
+      options.useAiDefense = true;
+    }
+    else if (arg === "--enable-meta") options.enableMeta = true;
+    else if (arg === "--format") {
+      const value = args.shift();
+      if (value === "json" || value === "table" || value === "sarif") {
+        options.format = value;
+      }
+    } else if (arg.startsWith("--format=")) {
+      const value = arg.split("=")[1];
+      if (value === "json" || value === "table" || value === "sarif") {
+        options.format = value;
+      }
+    } else if (arg === "--output") {
+      const value = args.shift();
+      if (value) options.output = value;
+    } else if (arg.startsWith("--output=")) {
+      const value = arg.split("=")[1];
+      if (value) options.output = value;
+    } else if (arg === "--fail-on-findings") {
+      options.failOn = "LOW";
+    }
     else if (arg === "--skills-dir") {
       const value = args.shift();
       if (value) options.extraSkillDirs?.push(value);
@@ -68,11 +110,15 @@ function printHelp() {
   const help = `Skillguard - Agent Skill Security Scanner
 
 Usage:
-  skillguard scan <path> [--json] [--fail-on <level>] [--tui|--no-tui] [--fix] [--system] [--skills-dir <path>] [--full-depth]
-  skillguard watch <path>
+  skillguard scan <path> [options]
+  skillguard scan-all <path> [options]
+  skillguard watch <path> [options]
 
 Options:
-  --json            Output JSON report
+  --json            Output JSON report (alias for --format json)
+  --format <type>   Output format: table | json | sarif
+  --output <file>   Write report to file instead of stdout
+  --fail-on-findings  Exit non-zero if any findings are detected
   --fail-on <lvl>   Exit non-zero if findings at or above level (LOW, MEDIUM, HIGH, CRITICAL)
   --tui             Force TUI rendering
   --no-tui          Disable TUI rendering
@@ -80,27 +126,44 @@ Options:
   --system          Include common system skill directories (e.g., ~/.codex/skills)
   --skills-dir      Add an extra skills root to scan (repeatable)
   --full-depth      Always search recursively for SKILL.md (slower)
+  --recursive       Alias for --full-depth
+  --use-behavioral  Enable behavioral heuristic engine
+  --no-behavioral   Disable behavioral heuristic engine
+  --use-llm         Enable LLM analyzer (reserved)
+  --use-aidefense   Enable AI defense engine (reserved)
+  --use-all         Enable all engines
+  --enable-meta     Enable meta-analyzer (false-positive filtering)
+
+Examples:
+  skillguard scan /path/to/skill
+  skillguard scan /path/to/skill --use-behavioral
+  skillguard scan /path/to/skill --use-behavioral --use-llm --use-aidefense
+  skillguard scan /path/to/skill --use-llm --enable-meta
+  skillguard scan-all /path/to/skills --recursive --use-behavioral
+  skillguard scan-all ./skills --fail-on-findings --format sarif --output results.sarif
 `;
 
   console.log(help);
 }
 
-async function collectFiles(scanRoots: string[]): Promise<string[]> {
+async function collectFiles(scanRoots: string[], options?: { includeDocs?: boolean }): Promise<string[]> {
   const fileSet = new Set<string>();
+  const extSet = options?.includeDocs ? SCAN_EXTENSIONS_SKILL : SCAN_EXTENSIONS;
 
   for (const root of scanRoots) {
-    if (!(await dirExists(root))) {
+    const sanitizedRoot = sanitizePath(root);
+    if (!(await dirExists(sanitizedRoot))) {
       continue;
     }
     const glob = new Bun.Glob("**/*");
-    for await (const relPath of glob.scan({ cwd: root, onlyFiles: true })) {
+    for await (const relPath of glob.scan({ cwd: sanitizedRoot, onlyFiles: true })) {
       if (isInSkippedDir(relPath, SKIP_DIRS)) continue;
 
       const base = relPath.split(/[\\/]/g).pop() ?? relPath;
       const ext = base.includes(".") ? base.slice(base.lastIndexOf(".")).toLowerCase() : "";
 
-      if (SPECIAL_FILES.has(base) || SCAN_EXTENSIONS.has(ext) || BINARY_EXTENSIONS.has(ext)) {
-        fileSet.add(join(root, relPath));
+      if (SPECIAL_FILES.has(base) || extSet.has(ext) || BINARY_EXTENSIONS.has(ext)) {
+        fileSet.add(join(sanitizedRoot, relPath));
       }
     }
   }
@@ -112,8 +175,14 @@ async function runScan(targetPath: string, options: ScanOptions) {
   if (options.fix) {
     console.warn("Note: --fix is not implemented yet. Running in scan-only mode.");
   }
+  if (options.useLlm) {
+    console.warn("Note: --use-llm is reserved and not implemented yet.");
+  }
+  if (options.useAiDefense) {
+    console.warn("Note: --use-aidefense is reserved and not implemented yet.");
+  }
   const start = Date.now();
-  const basePath = resolve(targetPath);
+  const basePath = sanitizePath(resolve(targetPath));
   const rulesPathFromImport = fileURLToPath(new URL("./rules/signatures.yaml", import.meta.url));
   const rulesCandidates = [
     process.env.SKILLGUARD_RULES,
@@ -142,11 +211,12 @@ async function runScan(targetPath: string, options: ScanOptions) {
     fullDepth: options.fullDepth,
   });
   const scanRoots = skills.length ? skills.map((skill) => skill.path) : [basePath];
-  const files = await collectFiles(scanRoots);
+  const files = await collectFiles(scanRoots, { includeDocs: skills.length > 0 });
 
-  const tuiEnabled = options.tui ?? (process.stdout.isTTY && !options.json);
+  const outputFormat = options.format ?? (options.json ? "json" : "table");
+  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
   const tui = createTui(tuiEnabled);
-  tui.start(files.length);
+  tui.start(files.length, skills.length);
 
   const findings: Finding[] = [];
 
@@ -157,7 +227,7 @@ async function runScan(targetPath: string, options: ScanOptions) {
     while (index < files.length) {
       const filePath = files[index++];
       try {
-        const fileFindings = await scanFile(filePath, rules);
+        const fileFindings = await scanFile(filePath, rules, options);
         if (fileFindings.length) {
           findings.push(...fileFindings);
           tui.onFindings(fileFindings);
@@ -175,22 +245,43 @@ async function runScan(targetPath: string, options: ScanOptions) {
   const elapsedMs = Date.now() - start;
   tui.finish();
 
+  const filteredFindings = options.enableMeta ? applyMetaAnalyzer(findings) : findings;
+
   const result = {
     skills,
-    findings,
+    findings: filteredFindings,
     scannedFiles: files.length,
     elapsedMs,
   };
 
-  if (options.json) {
-    console.log(toJson(result));
-  } else {
-    console.log(formatSummary(result));
-    console.log("");
-    console.log(renderTable(findings));
+  let outputText: string | null = null;
+  const format = outputFormat;
+
+  if (format === "json") {
+    outputText = toJson(result);
+  } else if (format === "sarif") {
+    outputText = toSarif(result);
   }
 
-  if (shouldFail(findings, options.failOn)) {
+  if (options.output && outputText !== null) {
+    await Bun.write(options.output, outputText);
+  }
+
+  if (format === "table") {
+    if (!tuiEnabled) {
+      console.log(formatSummary(result));
+      console.log("");
+      console.log(renderTable(result.findings));
+    } else {
+      console.log(formatSummary(result));
+    }
+  } else if (!options.output && outputText !== null) {
+    console.log(outputText);
+  } else {
+    console.log(formatSummary(result));
+  }
+
+  if (shouldFail(result.findings, options.failOn)) {
     process.exitCode = 2;
   }
 
@@ -199,7 +290,7 @@ async function runScan(targetPath: string, options: ScanOptions) {
 
 async function watchAndScan(targetPath: string, options: ScanOptions) {
   let previousKeys = new Set<string>();
-  const basePath = resolve(targetPath);
+  const basePath = sanitizePath(resolve(targetPath));
 
   const notifyNewFindings = (findings: Finding[]) => {
     const newFindings = findings.filter((finding) => {
@@ -270,6 +361,9 @@ async function watchAndScan(targetPath: string, options: ScanOptions) {
 const { command, targetPath, options } = parseArgs(process.argv.slice(2));
 
 if (command === "scan") {
+  await runScan(targetPath, options);
+} else if (command === "scan-all") {
+  options.fullDepth = true;
   await runScan(targetPath, options);
 } else if (command === "watch") {
   await watchAndScan(targetPath, options);
