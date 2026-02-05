@@ -1,11 +1,12 @@
 {
-  "name": "skillguard",
+  "name": "skill-scanner",
   "version": "0.1.0",
   "type": "module",
   "private": true,
   "scripts": {
     "dev": "bun run src/cli.ts",
-    "build": "bun build src/cli.ts --compile --outfile skillguard"
+    "build": "bun build src/cli.ts --compile --outfile skill-scanner && cp -f skill-scanner skillguard",
+    "test": "bun test"
   },
   "dependencies": {
     "@types/bun": "^1.3.8",

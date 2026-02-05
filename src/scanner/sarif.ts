@@ -60,8 +60,7 @@ export function toSarif(result: ScanResult): string {
       {
         tool: {
           driver: {
-            name: "Skillguard",
-            informationUri: "https://github.com/skillguard/skillguard",
+            name: "Security Scanner",
             rules: buildRules(result.findings),
           },
         },

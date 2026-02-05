@@ -1,5 +1,14 @@
 export type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
+export type TargetKind = "skill" | "extension" | "path";
+
+export type Target = {
+  kind: TargetKind;
+  name: string;
+  path: string;
+  meta?: Record<string, unknown>;
+};
+
 export type Rule = {
   id: string;
   category: string;
@@ -36,17 +45,17 @@ export type ScanOptions = {
   fullDepth?: boolean;
   fix?: boolean;
   includeSystem?: boolean;
+  includeExtensions?: boolean;
+  extraExtensionDirs?: string[];
   extraSkillDirs?: string[];
   useBehavioral?: boolean;
-  useLlm?: boolean;
-  useAiDefense?: boolean;
   enableMeta?: boolean;
   format?: "table" | "json" | "sarif";
   output?: string;
 };
 
 export type ScanResult = {
-  skills: Skill[];
+  targets: Target[];
   findings: Finding[];
   scannedFiles: number;
   elapsedMs: number;

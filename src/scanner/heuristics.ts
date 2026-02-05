@@ -1,5 +1,7 @@
 import { basename } from "path";
 import type { Finding } from "./types.ts";
+import { analyzeExtensionManifest } from "./extension-manifest.ts";
+import { analyzeCode } from "./code-analyzer.ts";
 
 const MAX_HEURISTIC_FINDINGS = 10;
 
@@ -129,6 +131,14 @@ export function runHeuristics(filePath: string, content: string, fileType: strin
 
   if (fileType === "json" && basename(filePath) === "package.json") {
     findings.push(...scanPackageScripts(filePath, content));
+  }
+
+  if ((fileType === "manifest" || fileType === "json") && basename(filePath) === "manifest.json") {
+    findings.push(...analyzeExtensionManifest(filePath, content));
+  }
+
+  if (fileType === "javascript" || fileType === "typescript" || fileType === "python" || fileType === "bash") {
+    findings.push(...analyzeCode(filePath, content, fileType));
   }
 
   return findings;

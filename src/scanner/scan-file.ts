@@ -1,9 +1,9 @@
 import { extname, basename } from "path";
 import type { CompiledRule } from "./rule-engine.ts";
 import type { Finding, ScanOptions } from "./types.ts";
-import { isProbablyBinary, readBytes, readText } from "../utils/fs.ts";
-import { scanContent } from "./rule-engine.ts";
-import { runHeuristics } from "./heuristics.ts";
+import { isProbablyBinary, readBytes, readText } from "../utils/fs";
+import { scanContent } from "./rule-engine";
+import { runHeuristics } from "./heuristics";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -48,6 +48,23 @@ export async function scanFile(filePath: string, rules: CompiledRule[], options?
       return scanContent("binary", filePath, "binary", rules);
     }
     return [];
+  }
+
+  // Explicitly skip archive/package formats that are commonly present in browser extension dirs.
+  // (We don't unpack yet; scanning raw bytes adds noise and is expensive.)
+  const ext = extname(filePath).toLowerCase();
+  if (ext === ".crx" || ext === ".xpi" || ext === ".zip") return [];
+
+  // For unknown file types we still try scanning as text, but skip obvious binaries
+  // to avoid noisy errors and wasted work (common in browser extensions).
+  if (fileType === "text") {
+    try {
+      const sampleBuffer = await Bun.file(filePath).slice(0, 512).arrayBuffer();
+      const sample = new Uint8Array(sampleBuffer);
+      if (isProbablyBinary(sample)) return [];
+    } catch {
+      return [];
+    }
   }
 
   const content = await readText(filePath, MAX_BYTES);

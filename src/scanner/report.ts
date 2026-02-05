@@ -107,6 +107,43 @@ export function applyMetaAnalyzer(findings: Finding[]): Finding[] {
 }
 
 export function toJson(result: ScanResult): string {
+  const ruleCounts = new Map<
+    string,
+    { ruleId: string; severity: Severity; category?: string; source?: string; count: number }
+  >();
+  const categoryCounts = new Map<string, number>();
+  const sourceCounts: Record<string, number> = { signature: 0, heuristic: 0, unknown: 0 };
+
+  for (const finding of result.findings) {
+    const existing = ruleCounts.get(finding.ruleId);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      ruleCounts.set(finding.ruleId, {
+        ruleId: finding.ruleId,
+        severity: finding.severity,
+        category: finding.category,
+        source: finding.source,
+        count: 1,
+      });
+    }
+
+    if (finding.category) {
+      categoryCounts.set(finding.category, (categoryCounts.get(finding.category) ?? 0) + 1);
+    }
+
+    const src = finding.source ?? "unknown";
+    sourceCounts[src] = (sourceCounts[src] ?? 0) + 1;
+  }
+
+  const targetKinds = result.targets.reduce(
+    (acc, t) => {
+      acc[t.kind] = (acc[t.kind] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
+
   const payload = {
     summary: {
       scannedFiles: result.scannedFiles,
@@ -114,6 +151,15 @@ export function toJson(result: ScanResult): string {
       findingCount: result.findings.length,
       severities: summarizeFindings(result.findings),
     },
+    detected: {
+      targetKinds,
+      sources: sourceCounts,
+      rules: Array.from(ruleCounts.values()).sort((a, b) => b.count - a.count),
+      categories: Array.from(categoryCounts.entries())
+        .map(([category, count]) => ({ category, count }))
+        .sort((a, b) => b.count - a.count),
+    },
+    targets: result.targets,
     findings: result.findings,
   };
 

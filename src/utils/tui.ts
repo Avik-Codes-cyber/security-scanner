@@ -15,22 +15,38 @@ const COLOR = {
 };
 
 const LOGO_LINES = [
-  "███████╗██╗  ██╗██╗██╗     ██╗      ███████╗ ██████╗ █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗ ",
-  "██╔════╝██║ ██╔╝██║██║     ██║      ██╔════╝██╔════╝██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗",
-  "███████╗█████╔╝ ██║██║     ██║      ███████╗██║     ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝",
-  "╚════██║██╔═██╗ ██║██║     ██║      ╚════██║██║     ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗",
-  "███████║██║  ██╗██║███████╗███████╗ ███████║╚██████╗██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║",
-  "╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝ ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝",
+  "███████╗███████╗ ██████╗██╗   ██╗██████╗ ██╗████████╗██╗   ██╗",
+  "██╔════╝██╔════╝██╔════╝██║   ██║██╔══██╗██║╚══██╔══╝╚██╗ ██╔╝",
+  "███████╗█████╗  ██║     ██║   ██║██████╔╝██║   ██║    ╚████╔╝ ",
+  "╚════██║██╔══╝  ██║     ██║   ██║██╔══██╗██║   ██║     ╚██╔╝  ",
+  "███████║███████╗╚██████╗╚██████╔╝██║  ██║██║   ██║      ██║   ",
+  "╚══════╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝   ╚═╝      ╚═╝   ",
 ];
 
-const GRAYS = [
-  "\x1b[38;5;250m",
-  "\x1b[38;5;248m",
-  "\x1b[38;5;245m",
-  "\x1b[38;5;243m",
-  "\x1b[38;5;240m",
-  "\x1b[38;5;238m",
+const LOGO_COLORS = [
+  "\x1b[38;5;33m",  // deep blue
+  "\x1b[38;5;39m",  // blue
+  "\x1b[38;5;45m",  // cyan
+  "\x1b[38;5;51m",  // bright cyan
+  "\x1b[38;5;82m",  // green
+  "\x1b[38;5;118m", // bright green
+  "\x1b[38;5;190m", // yellow
+  "\x1b[38;5;208m", // orange
+  "\x1b[38;5;201m", // magenta
 ];
+
+function gradientChunks(text: string, palette: string[]): string {
+  if (!text) return text;
+  const chunks = Math.max(3, Math.min(palette.length, 9));
+  const size = Math.ceil(text.length / chunks);
+  let out = "";
+  for (let i = 0; i < chunks; i++) {
+    const part = text.slice(i * size, (i + 1) * size);
+    if (!part) break;
+    out += `${palette[i % palette.length]}${part}`;
+  }
+  return `${out}${COLOR.reset}`;
+}
 
 function colorizeSeverity(sev: Severity): string {
   switch (sev) {
@@ -119,46 +135,49 @@ function center(text: string, width: number): string {
   return " ".repeat(left) + text + " ".repeat(right);
 }
 
-export type SkillSummary = {
+export type TargetSummary = {
   name: string;
   files: number;
   findings: number;
   counts: Record<Severity, number>;
 };
 
-export type Tui = {
-  start: (totalFiles: number, totalSkills?: number) => void;
-  beginSkill: (index: number, total: number, name: string, files: number) => void;
+export type ScanUi = {
+  start: (totalFiles: number, totalTargets?: number) => void;
+  beginTarget: (index: number, total: number, name: string, files: number) => void;
   onFile: (filePath: string) => void;
   onFindings: (newFindings: Finding[]) => void;
   setCurrentFindings: (findings: Finding[]) => void;
-  completeSkill: (summary: SkillSummary, findings?: Finding[]) => void;
+  completeTarget: (summary: TargetSummary, findings?: Finding[]) => void;
   finish: () => void;
 };
 
-export function createTui(enabled: boolean): Tui {
+export function createTui(enabled: boolean): ScanUi {
   if (!enabled) {
+    const noop = () => { };
     return {
-      start: () => { },
-      onFile: () => { },
-      onFindings: () => { },
-      finish: () => { },
+      start: (_totalFiles: number, _totalTargets?: number) => noop(),
+      beginTarget: (_index: number, _total: number, _name: string, _files: number) => noop(),
+      onFile: (_filePath: string) => noop(),
+      onFindings: (_newFindings: Finding[]) => noop(),
+      setCurrentFindings: (_findings: Finding[]) => noop(),
+      completeTarget: (_summary: TargetSummary, _findings?: Finding[]) => noop(),
+      finish: () => noop(),
     };
   }
 
   let totalFiles = 0;
-  let totalSkills = 0;
+  let totalTargets = 0;
   let scannedFiles = 0;
-  let currentFile = "";
-  let currentSkillIndex = 0;
-  let currentSkillTotal = 0;
-  let currentSkillName = "";
-  let currentSkillFiles = 0;
-  let currentSkillScanned = 0;
+  let currentTargetIndex = 0;
+  let currentTargetTotal = 0;
+  let currentTargetName = "";
+  let currentTargetFiles = 0;
+  let currentTargetScanned = 0;
   const currentFindings: Finding[] = [];
   const lastFindings: Finding[] = [];
   let lastFindingsLabel = "";
-  const completed: SkillSummary[] = [];
+  const completed: TargetSummary[] = [];
   let scheduled: NodeJS.Timeout | null = null;
   let finished = false;
 
@@ -171,15 +190,14 @@ export function createTui(enabled: boolean): Tui {
     const width = Math.max(90, Math.min(termWidth, 140));
     const innerWidth = width - 2;
 
-    const logoLines = LOGO_LINES.map((lineText, i) => {
-      const color = GRAYS[i % GRAYS.length];
-      return center(`${color}${lineText}${COLOR.reset}`, innerWidth);
+    const logoLines = LOGO_LINES.map((lineText) => {
+      return center(gradientChunks(lineText, LOGO_COLORS), innerWidth);
     });
 
-    const tagline = center(`${COLOR.dim}Agent skill security scanner${COLOR.reset}`, innerWidth);
+    const tagline = center(`${COLOR.dim}Security scanner for skills and browser extensions${COLOR.reset}`, innerWidth);
 
-    const headerText = `${COLOR.bold}Skill Scanner${COLOR.reset}`;
-    const skillsText = `${COLOR.dim}Skills${COLOR.reset} ${totalSkills}`;
+    const headerText = `${COLOR.bold}Security Scanner${COLOR.reset}`;
+    const skillsText = `${COLOR.dim}Targets${COLOR.reset} ${totalTargets}`;
     const statusText = `${COLOR.dim}Files${COLOR.reset} ${scannedFiles}/${totalFiles}`;
     const headerLine = pad(`${headerText}  ${skillsText}  ${statusText}`, innerWidth - 2);
 
@@ -187,9 +205,9 @@ export function createTui(enabled: boolean): Tui {
     const bar = progressBar(scannedFiles, totalFiles, barWidth);
     const progressText = `Progress: ${bar} ${scannedFiles}/${totalFiles}`;
 
-    const skillLine = currentSkillName
-      ? `${COLOR.dim}Skill${COLOR.reset}: ${currentSkillName} (${currentSkillIndex}/${currentSkillTotal})  ${COLOR.dim}Skill Files${COLOR.reset}: ${currentSkillScanned}/${currentSkillFiles}`
-      : `${COLOR.dim}Skill${COLOR.reset}: -`;
+    const skillLine = currentTargetName
+      ? `${COLOR.dim}Target${COLOR.reset}: ${currentTargetName} (${currentTargetIndex}/${currentTargetTotal})  ${COLOR.dim}Target Files${COLOR.reset}: ${currentTargetScanned}/${currentTargetFiles}`
+      : `${COLOR.dim}Target${COLOR.reset}: -`;
 
     const summary = `Findings: ${displayFindings.length} | ${COLOR.red}CRITICAL${COLOR.reset}:${counts.CRITICAL} ${COLOR.magenta}HIGH${COLOR.reset}:${counts.HIGH} ${COLOR.yellow}MEDIUM${COLOR.reset}:${counts.MEDIUM} ${COLOR.cyan}LOW${COLOR.reset}:${counts.LOW}`;
 
@@ -238,7 +256,7 @@ export function createTui(enabled: boolean): Tui {
         ];
 
     const completedHeader = [
-      pad(`${COLOR.bold}Completed Skill${COLOR.reset}`, Math.max(20, Math.floor(innerWidth * 0.4))),
+      pad(`${COLOR.bold}Completed Target${COLOR.reset}`, Math.max(20, Math.floor(innerWidth * 0.4))),
       pad(`${COLOR.bold}Files${COLOR.reset}`, 8),
       pad(`${COLOR.bold}Findings${COLOR.reset}`, 10),
       pad(`${COLOR.bold}Critical${COLOR.reset}`, 9),
@@ -294,22 +312,21 @@ export function createTui(enabled: boolean): Tui {
   return {
     start(total, skills = 0) {
       totalFiles = total;
-      totalSkills = skills;
+      totalTargets = skills;
       scheduleRender();
     },
-    beginSkill(index, total, name, files) {
-      currentSkillIndex = index;
-      currentSkillTotal = total;
-      currentSkillName = name;
-      currentSkillFiles = files;
-      currentSkillScanned = 0;
+    beginTarget(index, total, name, files) {
+      currentTargetIndex = index;
+      currentTargetTotal = total;
+      currentTargetName = name;
+      currentTargetFiles = files;
+      currentTargetScanned = 0;
       currentFindings.length = 0;
       scheduleRender();
     },
     onFile(filePath) {
       scannedFiles += 1;
-      currentSkillScanned += 1;
-      currentFile = filePath;
+      currentTargetScanned += 1;
       scheduleRender();
     },
     onFindings(newFindings) {
@@ -323,7 +340,7 @@ export function createTui(enabled: boolean): Tui {
       currentFindings.push(...findings);
       scheduleRender();
     },
-    completeSkill(summary, findings = []) {
+    completeTarget(summary, findings = []) {
       completed.push(summary);
       if (findings.length > 0) {
         lastFindings.length = 0;

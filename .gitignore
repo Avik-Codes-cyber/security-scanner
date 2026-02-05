@@ -1,3 +1,4 @@
 skillguard
 *.log
 node_modules
+skill-scanner
