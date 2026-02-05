@@ -6,7 +6,7 @@ import { discoverSkills, getSearchRoots } from "./scanner/discover.ts";
 import { loadRulesFromFile, loadRulesFromText } from "./scanner/rule-engine.ts";
 import { scanFile } from "./scanner/scan-file.ts";
 import type { Finding, Severity, ScanOptions } from "./scanner/types.ts";
-import { applyMetaAnalyzer, formatSummary, renderTable, shouldFail, toJson } from "./scanner/report.ts";
+import { applyMetaAnalyzer, formatSummary, renderTable, shouldFail, summarizeFindings, toJson } from "./scanner/report.ts";
 import { toSarif } from "./scanner/sarif.ts";
 import { createTui } from "./utils/tui.ts";
 import { dirExists, isInSkippedDir, sanitizePath } from "./utils/fs.ts";
@@ -14,13 +14,6 @@ import { signaturesYaml } from "./rules/signatures.ts";
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
 const SCAN_EXTENSIONS = new Set([".py", ".ts", ".js", ".mjs", ".cjs", ".sh", ".bash"]);
-const SCAN_EXTENSIONS_SKILL = new Set([
-  ...SCAN_EXTENSIONS,
-  ".md",
-  ".mdx",
-  ".txt",
-  ".rst",
-]);
 const SPECIAL_FILES = new Set(["SKILL.md", "manifest.json", "package.json"]);
 const BINARY_EXTENSIONS = new Set([".exe", ".bin", ".dll", ".so", ".dylib", ".jar"]);
 
@@ -148,7 +141,6 @@ Examples:
 
 async function collectFiles(scanRoots: string[], options?: { includeDocs?: boolean }): Promise<string[]> {
   const fileSet = new Set<string>();
-  const extSet = options?.includeDocs ? SCAN_EXTENSIONS_SKILL : SCAN_EXTENSIONS;
 
   for (const root of scanRoots) {
     const sanitizedRoot = sanitizePath(root);
@@ -162,7 +154,14 @@ async function collectFiles(scanRoots: string[], options?: { includeDocs?: boole
       const base = relPath.split(/[\\/]/g).pop() ?? relPath;
       const ext = base.includes(".") ? base.slice(base.lastIndexOf(".")).toLowerCase() : "";
 
-      if (SPECIAL_FILES.has(base) || extSet.has(ext) || BINARY_EXTENSIONS.has(ext)) {
+      if (options?.includeDocs) {
+        if (!BINARY_EXTENSIONS.has(ext)) {
+          fileSet.add(join(sanitizedRoot, relPath));
+        }
+        continue;
+      }
+
+      if (SPECIAL_FILES.has(base) || SCAN_EXTENSIONS.has(ext) || BINARY_EXTENSIONS.has(ext)) {
         fileSet.add(join(sanitizedRoot, relPath));
       }
     }
@@ -210,37 +209,72 @@ async function runScan(targetPath: string, options: ScanOptions) {
     extraSkillDirs: options.extraSkillDirs,
     fullDepth: options.fullDepth,
   });
-  const scanRoots = skills.length ? skills.map((skill) => skill.path) : [basePath];
-  const files = await collectFiles(scanRoots, { includeDocs: skills.length > 0 });
+  const scanPlans = skills.length
+    ? await Promise.all(
+        skills.map(async (skill) => ({
+          name: skill.name,
+          path: skill.path,
+          files: await collectFiles([skill.path], { includeDocs: true }),
+        }))
+      )
+    : [
+        {
+          name: "root",
+          path: basePath,
+          files: await collectFiles([basePath], { includeDocs: false }),
+        },
+      ];
+
+  const totalFiles = scanPlans.reduce((sum, plan) => sum + plan.files.length, 0);
 
   const outputFormat = options.format ?? (options.json ? "json" : "table");
   const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
   const tui = createTui(tuiEnabled);
-  tui.start(files.length, skills.length);
+  tui.start(totalFiles, scanPlans.length);
 
   const findings: Finding[] = [];
 
   const concurrency = Math.min(32, Math.max(4, Math.floor((navigator.hardwareConcurrency ?? 8) / 2)));
-  let index = 0;
 
-  const worker = async () => {
-    while (index < files.length) {
-      const filePath = files[index++];
-      try {
-        const fileFindings = await scanFile(filePath, rules, options);
-        if (fileFindings.length) {
-          findings.push(...fileFindings);
-          tui.onFindings(fileFindings);
+  for (let i = 0; i < scanPlans.length; i++) {
+    const plan = scanPlans[i];
+    tui.beginSkill(i + 1, scanPlans.length, plan.name, plan.files.length);
+
+    const skillFindings: Finding[] = [];
+    let index = 0;
+
+    const worker = async () => {
+      while (index < plan.files.length) {
+        const filePath = plan.files[index++];
+        try {
+          const fileFindings = await scanFile(filePath, rules, options);
+          if (fileFindings.length) {
+            skillFindings.push(...fileFindings);
+            tui.onFindings(fileFindings);
+          }
+        } catch {
+          // ignore unreadable file
+        } finally {
+          tui.onFile(filePath);
         }
-      } catch {
-        // ignore unreadable file
-      } finally {
-        tui.onFile(filePath);
       }
-    }
-  };
+    };
 
-  await Promise.all(Array.from({ length: concurrency }, worker));
+    await Promise.all(Array.from({ length: concurrency }, worker));
+
+    const filteredSkillFindings = options.enableMeta ? applyMetaAnalyzer(skillFindings) : skillFindings;
+    if (options.enableMeta) {
+      tui.setCurrentFindings(filteredSkillFindings);
+    }
+
+    findings.push(...filteredSkillFindings);
+    tui.completeSkill({
+      name: plan.name,
+      files: plan.files.length,
+      findings: filteredSkillFindings.length,
+      counts: summarizeFindings(filteredSkillFindings),
+    });
+  }
 
   const elapsedMs = Date.now() - start;
   tui.finish();
@@ -250,7 +284,7 @@ async function runScan(targetPath: string, options: ScanOptions) {
   const result = {
     skills,
     findings: filteredFindings,
-    scannedFiles: files.length,
+    scannedFiles: totalFiles,
     elapsedMs,
   };
 

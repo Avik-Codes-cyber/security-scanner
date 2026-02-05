@@ -119,10 +119,20 @@ function center(text: string, width: number): string {
   return " ".repeat(left) + text + " ".repeat(right);
 }
 
+export type SkillSummary = {
+  name: string;
+  files: number;
+  findings: number;
+  counts: Record<Severity, number>;
+};
+
 export type Tui = {
-  start: (totalFiles: number, totalSkills?: number, rootPath?: string) => void;
+  start: (totalFiles: number, totalSkills?: number) => void;
+  beginSkill: (index: number, total: number, name: string, files: number) => void;
   onFile: (filePath: string) => void;
   onFindings: (newFindings: Finding[]) => void;
+  setCurrentFindings: (findings: Finding[]) => void;
+  completeSkill: (summary: SkillSummary) => void;
   finish: () => void;
 };
 
@@ -140,13 +150,19 @@ export function createTui(enabled: boolean): Tui {
   let totalSkills = 0;
   let scannedFiles = 0;
   let currentFile = "";
-  const findings: Finding[] = [];
+  let currentSkillIndex = 0;
+  let currentSkillTotal = 0;
+  let currentSkillName = "";
+  let currentSkillFiles = 0;
+  let currentSkillScanned = 0;
+  const currentFindings: Finding[] = [];
+  const completed: SkillSummary[] = [];
   let scheduled: NodeJS.Timeout | null = null;
   let finished = false;
 
   const render = () => {
     scheduled = null;
-    const counts = summarizeFindings(findings);
+    const counts = summarizeFindings(currentFindings);
 
     const termWidth = Math.max(90, process.stdout.columns ?? 120);
     const width = Math.max(90, Math.min(termWidth, 140));
@@ -172,7 +188,11 @@ export function createTui(enabled: boolean): Tui {
       ? `${COLOR.dim}Scanning${COLOR.reset}: ${currentFile}`
       : `${COLOR.dim}Scanning${COLOR.reset}: -`;
 
-    const summary = `Findings: ${findings.length} | ${COLOR.red}CRITICAL${COLOR.reset}:${counts.CRITICAL} ${COLOR.magenta}HIGH${COLOR.reset}:${counts.HIGH} ${COLOR.yellow}MEDIUM${COLOR.reset}:${counts.MEDIUM} ${COLOR.cyan}LOW${COLOR.reset}:${counts.LOW}`;
+    const skillLine = currentSkillName
+      ? `${COLOR.dim}Skill${COLOR.reset}: ${currentSkillName} (${currentSkillIndex}/${currentSkillTotal})  ${COLOR.dim}Skill Files${COLOR.reset}: ${currentSkillScanned}/${currentSkillFiles}`
+      : `${COLOR.dim}Skill${COLOR.reset}: -`;
+
+    const summary = `Findings: ${currentFindings.length} | ${COLOR.red}CRITICAL${COLOR.reset}:${counts.CRITICAL} ${COLOR.magenta}HIGH${COLOR.reset}:${counts.HIGH} ${COLOR.yellow}MEDIUM${COLOR.reset}:${counts.MEDIUM} ${COLOR.cyan}LOW${COLOR.reset}:${counts.LOW}`;
 
     const colSev = 10;
     const colRule = 26;
@@ -187,7 +207,7 @@ export function createTui(enabled: boolean): Tui {
     ].join("  ");
 
     const rows: string[] = [];
-    for (const finding of findings) {
+    for (const finding of currentFindings) {
       const severity = colorizeSeverity(finding.severity);
       const fileLines = wrapText(finding.file, colFile);
       const ruleLines = wrapText(finding.ruleId, colRule);
@@ -218,6 +238,28 @@ export function createTui(enabled: boolean): Tui {
             ].join("  "),
           ];
 
+    const completedHeader = [
+      pad(`${COLOR.bold}Completed Skill${COLOR.reset}`, Math.max(20, Math.floor(innerWidth * 0.4))),
+      pad(`${COLOR.bold}Files${COLOR.reset}`, 8),
+      pad(`${COLOR.bold}Findings${COLOR.reset}`, 10),
+      pad(`${COLOR.bold}Critical${COLOR.reset}`, 9),
+      pad(`${COLOR.bold}High${COLOR.reset}`, 6),
+      pad(`${COLOR.bold}Medium${COLOR.reset}`, 8),
+      pad(`${COLOR.bold}Low${COLOR.reset}`, 6),
+    ].join("  ");
+
+    const completedRows = completed.map((item) => {
+      return [
+        pad(item.name, Math.max(20, Math.floor(innerWidth * 0.4))),
+        pad(String(item.files), 8),
+        pad(String(item.findings), 10),
+        pad(String(item.counts.CRITICAL), 9),
+        pad(String(item.counts.HIGH), 6),
+        pad(String(item.counts.MEDIUM), 8),
+        pad(String(item.counts.LOW), 6),
+      ].join("  ");
+    });
+
     const top = `┌${"─".repeat(innerWidth)}┐`;
     const mid = `├${"─".repeat(innerWidth)}┤`;
     const bottom = `└${"─".repeat(innerWidth)}┘`;
@@ -230,11 +272,15 @@ export function createTui(enabled: boolean): Tui {
       top,
       line(headerLine, innerWidth),
       line(progressText, innerWidth),
+      line(skillLine, innerWidth),
       line(currentText, innerWidth),
       line(summary, innerWidth),
       mid,
       line(tableHeader, innerWidth),
       ...body.map((row) => line(row, innerWidth)),
+      ...(completed.length > 0
+        ? [mid, line(completedHeader, innerWidth), ...completedRows.map((row) => line(row, innerWidth))]
+        : []),
       bottom,
     ].join("\n");
 
@@ -253,16 +299,35 @@ export function createTui(enabled: boolean): Tui {
       totalSkills = skills;
       scheduleRender();
     },
+    beginSkill(index, total, name, files) {
+      currentSkillIndex = index;
+      currentSkillTotal = total;
+      currentSkillName = name;
+      currentSkillFiles = files;
+      currentSkillScanned = 0;
+      currentFindings.length = 0;
+      scheduleRender();
+    },
     onFile(filePath) {
       scannedFiles += 1;
+      currentSkillScanned += 1;
       currentFile = filePath;
       scheduleRender();
     },
     onFindings(newFindings) {
       if (newFindings.length) {
-        findings.push(...newFindings);
+        currentFindings.push(...newFindings);
         scheduleRender();
       }
+    },
+    setCurrentFindings(findings) {
+      currentFindings.length = 0;
+      currentFindings.push(...findings);
+      scheduleRender();
+    },
+    completeSkill(summary) {
+      completed.push(summary);
+      scheduleRender();
     },
     finish() {
       if (scheduled) {

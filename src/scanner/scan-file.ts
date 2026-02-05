@@ -25,13 +25,17 @@ export function detectFileType(filePath: string): string | null {
   if (base === "package.json") return "json";
 
   if (ext === ".md" || ext === ".mdx" || ext === ".txt" || ext === ".rst") return "markdown";
+  if (ext === ".yaml" || ext === ".yml" || ext === ".toml" || ext === ".ini" || ext === ".cfg" || ext === ".conf") {
+    return "markdown";
+  }
+  if (ext === ".json") return "json";
   if (ext === ".py") return "python";
   if (ext === ".ts") return "typescript";
   if (ext === ".js" || ext === ".mjs" || ext === ".cjs") return "javascript";
   if (ext === ".sh" || ext === ".bash") return "bash";
   if (BINARY_EXTENSIONS.has(ext)) return "binary";
 
-  return null;
+  return "text";
 }
 
 export async function scanFile(filePath: string, rules: CompiledRule[], options?: ScanOptions): Promise<Finding[]> {
