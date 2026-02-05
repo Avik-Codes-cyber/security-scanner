@@ -2,7 +2,7 @@ import { readdir } from "fs/promises";
 import { basename, dirname, join, resolve, isAbsolute } from "path";
 import matter from "gray-matter";
 import type { Skill } from "./types.ts";
-import { dirExists, fileExists, isInSkippedDir, readText, sanitizePath } from "../utils/fs.ts";
+import { dirExists, fileExists, isInSkippedDir, readText, sanitizePath } from "../utils/fs";
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
 

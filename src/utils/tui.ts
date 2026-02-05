@@ -1,5 +1,5 @@
 import type { Finding, Severity } from "../scanner/types.ts";
-import { summarizeFindings } from "../scanner/report.ts";
+import { summarizeFindings } from "../scanner/report";
 
 const COLOR = {
   reset: "\x1b[0m",
@@ -233,13 +233,13 @@ export function createTui(enabled: boolean): Tui {
       rows.length > 0
         ? rows
         : [
-            [
-              pad("", colSev),
-              pad("", colFile),
-              pad("", colRule),
-              pad(`${COLOR.gray}No findings yet.${COLOR.reset}`, colMsg),
-            ].join("  "),
-          ];
+          [
+            pad("", colSev),
+            pad("", colFile),
+            pad("", colRule),
+            pad(`${COLOR.gray}No findings yet.${COLOR.reset}`, colMsg),
+          ].join("  "),
+        ];
 
     const completedHeader = [
       pad(`${COLOR.bold}Completed Skill${COLOR.reset}`, Math.max(20, Math.floor(innerWidth * 0.4))),
