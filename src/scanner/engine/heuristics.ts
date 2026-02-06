@@ -1,7 +1,7 @@
 import { basename } from "path";
-import type { Finding } from "./types.ts";
-import { analyzeExtensionManifest } from "./extension-manifest.ts";
-import { analyzeCode } from "./code-analyzer.ts";
+import type { Finding } from "../types";
+import { analyzeExtensionManifest } from "../extensions/browser/manifest";
+import { analyzeCode } from "./code-analyzer";
 
 const MAX_HEURISTIC_FINDINGS = 10;
 

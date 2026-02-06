@@ -1,7 +1,7 @@
-import type { CompiledRule } from "./rule-engine.ts";
-import type { Finding, ScanOptions } from "./types.ts";
-import { scanContent } from "./rule-engine.ts";
-import { runHeuristics } from "./heuristics.ts";
+import type { CompiledRule } from "./rule-engine";
+import type { Finding, ScanOptions } from "../types";
+import { scanContent } from "./rule-engine";
+import { runHeuristics } from "./heuristics";
 
 export type VirtualFileType = "markdown" | "json" | "manifest" | "text";
 
@@ -22,4 +22,3 @@ export function scanContentItem(
     : [];
   return [...findings, ...heuristicFindings];
 }
-

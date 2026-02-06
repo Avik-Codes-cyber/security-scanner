@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { analyzeExtensionManifest } from "./extension-manifest";
+import { analyzeExtensionManifest } from "./manifest";
 
 describe("analyzeExtensionManifest", () => {
   test("flags <all_urls> host access", () => {

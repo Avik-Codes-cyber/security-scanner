@@ -1,5 +1,5 @@
 import { basename } from "path";
-import type { Finding } from "./types.ts";
+import type { Finding } from "../../types.ts";
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];

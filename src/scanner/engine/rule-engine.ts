@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml";
-import type { Finding, Rule, Severity } from "./types.ts";
-import { readText } from "../utils/fs.ts";
+import type { Finding, Rule, Severity } from "../types";
+import { readText } from "../../utils/fs";
 
 const MAX_FINDINGS_PER_RULE_PER_FILE = 20;
 

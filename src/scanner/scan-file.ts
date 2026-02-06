@@ -1,9 +1,9 @@
 import { extname, basename } from "path";
-import type { CompiledRule } from "./rule-engine.ts";
+import type { CompiledRule } from "./engine/rule-engine";
 import type { Finding, ScanOptions } from "./types.ts";
 import { isProbablyBinary, readBytes, readText } from "../utils/fs";
-import { scanContent } from "./rule-engine";
-import { runHeuristics } from "./heuristics";
+import { scanContent } from "./engine/rule-engine";
+import { runHeuristics } from "./engine/heuristics";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 

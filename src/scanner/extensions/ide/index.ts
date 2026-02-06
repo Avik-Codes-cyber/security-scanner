@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
-import { dirExists } from "../utils/fs";
+import { dirExists } from "../../../utils/fs";
 
 export type IDEExtensionTarget = {
   name: string;

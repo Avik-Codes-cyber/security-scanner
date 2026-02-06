@@ -1,4 +1,4 @@
-import type { Finding, ScanResult, Severity } from "./types.ts";
+import type { Finding, ScanResult, Severity } from "../types";
 
 function severityToLevel(sev: Severity): "error" | "warning" | "note" {
   switch (sev) {

@@ -1,6 +1,6 @@
 import { extname } from "path";
 import type { Finding } from "./types.ts";
-import { readText } from "../utils/fs.ts";
+import { readText } from "../utils/fs";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 

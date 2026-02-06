@@ -1,5 +1,5 @@
 import { basename } from "path";
-import type { VirtualFileType } from "../scan-content.ts";
+import type { VirtualFileType } from "../engine/scan-content";
 import type { McpCollected, McpCollectOptions } from "./collect.ts";
 import type { McpInitialize, McpPrompt, McpResource, McpTool } from "./types.ts";
 
