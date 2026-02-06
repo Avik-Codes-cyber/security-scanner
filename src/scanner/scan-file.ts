@@ -30,9 +30,26 @@ export function detectFileType(filePath: string): string | null {
   }
   if (ext === ".json") return "json";
   if (ext === ".py") return "python";
-  if (ext === ".ts") return "typescript";
-  if (ext === ".js" || ext === ".mjs" || ext === ".cjs") return "javascript";
+  if (ext === ".ts" || ext === ".tsx" || ext === ".d.ts") return "typescript";
+  if (ext === ".js" || ext === ".mjs" || ext === ".cjs" || ext === ".jsx") return "javascript";
   if (ext === ".sh" || ext === ".bash") return "bash";
+  if (ext === ".go") return "python"; // Go syntax similar enough for basic pattern matching
+  if (ext === ".java" || ext === ".class") return "python"; // Java similar enough
+  if (ext === ".cpp" || ext === ".cc" || ext === ".cxx" || ext === ".c" || ext === ".h" || ext === ".hpp") return "python"; // C/C++ similar
+  if (ext === ".cs") return "python"; // C# similar syntax
+  if (ext === ".swift") return "python"; // Swift similar enough
+  if (ext === ".rb") return "python"; // Ruby similar
+  if (ext === ".php") return "javascript"; // PHP similar to JS
+  if (ext === ".lua") return "bash"; // Lua similar scripting patterns
+  if (ext === ".pl" || ext === ".pm") return "bash"; // Perl similar scripting
+  if (ext === ".rs") return "python"; // Rust similar syntax
+  if (ext === ".kt") return "python"; // Kotlin similar to Java
+  if (ext === ".scala") return "python"; // Scala similar
+  if (ext === ".groovy") return "python"; // Groovy similar
+  if (ext === ".dart") return "python"; // Dart similar
+  if (ext === ".vue" || ext === ".svelte") return "javascript"; // Vue/Svelte are JS-based
+  if (ext === ".html" || ext === ".htm") return "javascript"; // HTML may contain scripts
+  if (ext === ".css" || ext === ".scss" || ext === ".sass" || ext === ".less") return "markdown"; // CSS-like
   if (BINARY_EXTENSIONS.has(ext)) return "binary";
 
   return "text";
