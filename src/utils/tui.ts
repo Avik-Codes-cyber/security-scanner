@@ -378,18 +378,12 @@ export function createTui(enabled: boolean): ScanUi {
       bottom,
     ].join("\n");
 
+    // Always clear screen and redraw from home to avoid line-wrapping drift.
     if (isFirstRender) {
-      // First render: hide cursor, write output
-      process.stdout.write("\x1b[?25l" + output);
+      process.stdout.write("\x1b[?25l");
       isFirstRender = false;
-    } else {
-      // Move cursor up to the previous render and overwrite in-place
-      if (lastOutputLineCount > 0) {
-        process.stdout.write(`\x1b[${lastOutputLineCount}A`);
-      }
-      process.stdout.write("\x1b[J" + output);
     }
-
+    process.stdout.write("\x1b[H\x1b[2J" + output);
     lastOutputLineCount = output.split("\n").length;
   };
 
