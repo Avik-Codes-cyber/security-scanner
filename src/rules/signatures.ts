@@ -700,4 +700,4 @@ export const signaturesYaml = String.raw`# Security Rule Signatures for Skillgua
   file_types: [any]
   description: "Suspicious multi-step tool chaining that could exfiltrate data"
   remediation: "Require explicit user approval before multi-step data flows"
-`
+`;

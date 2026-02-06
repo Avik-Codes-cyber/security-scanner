@@ -227,10 +227,16 @@ export function createTui(enabled: boolean): ScanUi {
   let lastFindingsLabel = "";
   const completed: TargetSummary[] = [];
   let scheduled: NodeJS.Timeout | null = null;
+  let lastRenderTime = 0;
   let finished = false;
+  let isFirstRender = true;
+  let lastOutputLineCount = 0;
+  const DEBOUNCE_DELAY = 200;
+  const MIN_RENDER_INTERVAL = 100;
 
   const render = () => {
     scheduled = null;
+    lastRenderTime = Date.now();
     const displayFindings = currentFindings.length > 0 ? currentFindings : lastFindings;
     const counts = summarizeFindings(displayFindings);
 
@@ -357,13 +363,42 @@ export function createTui(enabled: boolean): ScanUi {
       bottom,
     ].join("\n");
 
-    process.stdout.write("\x1b[2J\x1b[H" + output + "\n");
+    const outputLines = output.split("\n");
+    const currentLineCount = outputLines.length;
+
+    if (isFirstRender) {
+      // Clear screen and position cursor at home for first render
+      process.stdout.write("\x1b[2J\x1b[H" + output + "\n");
+      isFirstRender = false;
+    } else {
+      // For subsequent renders, move cursor home and update content smoothly
+      process.stdout.write("\x1b[H" + output);
+
+      // If the new output is shorter, clear the extra lines at the bottom
+      if (currentLineCount < lastOutputLineCount) {
+        const linesToClear = lastOutputLineCount - currentLineCount;
+        process.stdout.write("\n\x1b[J"); // Clear from cursor to end of display
+      } else {
+        process.stdout.write("\n");
+      }
+    }
+
+    lastOutputLineCount = currentLineCount;
   };
 
   const scheduleRender = () => {
     if (finished) return;
     if (scheduled) return;
-    scheduled = setTimeout(render, 60);
+
+    const timeSinceLastRender = Date.now() - lastRenderTime;
+    if (timeSinceLastRender < MIN_RENDER_INTERVAL) {
+      // If we just rendered, schedule the next render with a longer delay
+      scheduled = setTimeout(render, DEBOUNCE_DELAY);
+      return;
+    }
+
+    // Render immediately if enough time has passed
+    render();
   };
 
   return {
