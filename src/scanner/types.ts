@@ -1,6 +1,6 @@
 export type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
-export type TargetKind = "skill" | "extension" | "mcp" | "path";
+export type TargetKind = "skill" | "extension" | "ide-extension" | "mcp" | "path";
 
 export type Target = {
   kind: TargetKind;
@@ -46,12 +46,19 @@ export type ScanOptions = {
   fix?: boolean;
   includeSystem?: boolean;
   includeExtensions?: boolean;
+  includeIDEExtensions?: boolean;
   extraExtensionDirs?: string[];
+  extraIDEExtensionDirs?: string[];
   extraSkillDirs?: string[];
   useBehavioral?: boolean;
   enableMeta?: boolean;
   format?: "table" | "json" | "sarif";
   output?: string;
+  save?: boolean;
+  tags?: string[];
+  notes?: string;
+  compareWith?: string;
+  targetPath?: string;
 };
 
 export type ScanResult = {

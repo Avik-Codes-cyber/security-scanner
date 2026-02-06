@@ -5,6 +5,7 @@ Security Scanner (`skill-scanner`) is a Bun + TypeScript CLI that scans agent sk
 ## Features
 - Recursive skill discovery across multiple agent ecosystems
 - Optional scanning of installed browser extensions (Chromium-based browsers like Chrome/Edge/Brave/Vivaldi/Opera/Arc where present; Firefox unpacked extensions only)
+- Optional scanning of installed IDE extensions (VS Code, Cursor, Windsurf, JetBrains family)
 - MCP scanning:
   - Remote MCP server scanning over JSON-RPC HTTP (tools/prompts/resources/instructions)
   - Offline/static scanning from MCP JSON exports (`--tools`, `--prompts`, `--resources`, `--instructions`)
@@ -12,6 +13,7 @@ Security Scanner (`skill-scanner`) is a Bun + TypeScript CLI that scans agent sk
 - Additional security layer with heuristics for high-entropy secrets and risky install scripts
 - Human-readable table output, JSON output, and failure thresholds
 - Built-in TUI for live progress and findings
+- Scan result storage and history tracking with comparison support
 
 ## Usage
 ```bash
@@ -43,6 +45,20 @@ Security Scanner (`skill-scanner`) is a Bun + TypeScript CLI that scans agent sk
 # MCP configs with server connections
 ./skill-scanner mcp known-configs --connect --format json
 ./skill-scanner mcp config ~/.cursor/mcp.json --connect --format table
+
+# Scan with IDE extensions (VS Code, Cursor, JetBrains, etc.)
+./skill-scanner scan . --ide-extensions
+./skill-scanner scan . --extensions --ide-extensions  # Both browser and IDE extensions
+
+# Save scan results for later reference
+./skill-scanner scan . --save --tag "release-check" --notes "Pre-deployment security scan"
+./skill-scanner scan . --save --compare-with <previous-scan-id>
+
+# View scan history
+./skill-scanner history                    # List recent scans
+./skill-scanner history <scan-id>          # Show scan details
+./skill-scanner history stats              # Show statistics
+./skill-scanner history --json             # Output history as JSON
 ```
 
 ## Build
@@ -78,3 +94,7 @@ MEDIUM    skills/baz/package.json       SUPPLY_CHAIN_INSTALL_SCRIPT        Auto-
 - `watch` mode prints a notification when new findings appear.
 - `--enable-meta` applies a lightweight meta-analyzer to reduce duplicate findings.
 - `--extensions` discovers installed Chromium-based extensions by scanning the per-profile `Extensions/` folders (and single-profile roots like Opera). For Firefox, only unpacked extension directories are scanned (not `.xpi` archives).
+- `--ide-extensions` discovers installed IDE extensions from VS Code, Cursor, Windsurf, JetBrains IDEs, and other editors across macOS, Linux, and Windows.
+- `--save` stores scan results locally (max 100 scans retained automatically). Storage location: `~/Library/Application Support/skill-scanner/` (macOS), `~/.config/skill-scanner/` (Linux), or `%LOCALAPPDATA%/skill-scanner/` (Windows).
+- `--tag` and `--notes` add metadata to saved scans for easier filtering and identification.
+- `--compare-with <id>` compares current scan findings against a previous scan, showing added, removed, and unchanged findings.

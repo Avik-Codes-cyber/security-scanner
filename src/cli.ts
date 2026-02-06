@@ -2,23 +2,25 @@
 import { resolve, join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { watch } from "fs";
-import { discoverSkills, getSearchRoots } from "./scanner/discover.ts";
-import { discoverBrowserExtensions, discoverBrowserExtensionWatchRoots } from "./scanner/browser-extensions.ts";
-import { loadRulesFromFile, loadRulesFromText } from "./scanner/rule-engine.ts";
-import { scanFile } from "./scanner/scan-file.ts";
-import { scanContentItem } from "./scanner/scan-content.ts";
-import type { Finding, Severity, ScanOptions, Target } from "./scanner/types.ts";
-import { applyMetaAnalyzer, formatSummary, renderTable, shouldFail, summarizeFindings, toJson } from "./scanner/report.ts";
-import { applyFixes } from "./scanner/fix.ts";
-import { toSarif } from "./scanner/sarif.ts";
-import { createTui } from "./utils/tui.ts";
-import { dirExists, isInSkippedDir, sanitizePath } from "./utils/fs.ts";
-import { signaturesYaml } from "./rules/signatures.ts";
-import { collectFromServer } from "./scanner/mcp/collect.ts";
-import { loadStaticInputs } from "./scanner/mcp/static.ts";
-import { staticLabelFromFiles, virtualizeRemote, virtualizeStatic } from "./scanner/mcp/virtualize.ts";
-import { discoverWellKnownMcpConfigPaths } from "./scanner/mcp/known-configs.ts";
-import { loadAndExtractMcpServers } from "./scanner/mcp/config.ts";
+import { discoverSkills, getSearchRoots } from "./scanner/discover";
+import { discoverBrowserExtensions, discoverBrowserExtensionWatchRoots } from "./scanner/browser-extensions";
+import { discoverIDEExtensions, discoverIDEExtensionWatchRoots, type IDEExtensionTarget } from "./scanner/ide-extensions";
+import { scanStorage, type StoredScan, type ScanQuery } from "./storage/scan-storage";
+import { loadRulesFromFile, loadRulesFromText } from "./scanner/rule-engine";
+import { scanFile } from "./scanner/scan-file";
+import { scanContentItem } from "./scanner/scan-content";
+import type { Finding, Severity, ScanOptions, Target, ScanResult } from "./scanner/types.ts";
+import { applyMetaAnalyzer, formatSummary, renderTable, shouldFail, summarizeFindings, toJson } from "./scanner/report";
+import { applyFixes } from "./scanner/fix";
+import { toSarif } from "./scanner/sarif";
+import { createTui } from "./utils/tui";
+import { dirExists, isInSkippedDir, sanitizePath } from "./utils/fs";
+import { signaturesYaml } from "./rules/signatures";
+import { collectFromServer } from "./scanner/mcp/collect";
+import { loadStaticInputs } from "./scanner/mcp/static";
+import { staticLabelFromFiles, virtualizeRemote, virtualizeStatic } from "./scanner/mcp/virtualize";
+import { discoverWellKnownMcpConfigPaths } from "./scanner/mcp/known-configs";
+import { loadAndExtractMcpServers } from "./scanner/mcp/config";
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
 const SCAN_EXTENSIONS = new Set([".py", ".ts", ".js", ".mjs", ".cjs", ".sh", ".bash"]);
@@ -73,6 +75,9 @@ function parseArgs(argv: string[]) {
       const path = args[0] && !args[0].startsWith("-") ? args.shift()! : "";
       if (path) mcp.configPath = path;
     }
+  } else if (command === "history" || command === "hist") {
+    // For history command, the first arg is a subcommand (stats, clear, scan-id, etc.)
+    targetPath = args[0] && !args[0].startsWith("-") ? args.shift()! : "";
   } else {
     targetPath = args[0] && !args[0].startsWith("-") ? args.shift()! : ".";
   }
@@ -82,6 +87,8 @@ function parseArgs(argv: string[]) {
     tui: undefined,
     extraSkillDirs: [],
     extraExtensionDirs: [],
+    extraIDEExtensionDirs: [],
+    tags: [],
     useBehavioral: true,
     format: "table",
   };
@@ -107,6 +114,15 @@ function parseArgs(argv: string[]) {
     }
     else if (arg === "--extensions" || arg === "--include-extensions") options.includeExtensions = true;
     else if (arg === "--no-extensions") options.includeExtensions = false;
+    else if (arg === "--ide-extensions" || arg === "--include-ide-extensions") options.includeIDEExtensions = true;
+    else if (arg === "--no-ide-extensions") options.includeIDEExtensions = false;
+    else if (arg === "--ide-extensions-dir") {
+      const value = args.shift();
+      if (value) options.extraIDEExtensionDirs?.push(value);
+    } else if (arg.startsWith("--ide-extensions-dir=")) {
+      const value = arg.split("=")[1];
+      if (value) options.extraIDEExtensionDirs?.push(value);
+    }
     else if (arg === "--full-depth" || arg === "--recursive") options.fullDepth = true;
     else if (arg === "--use-behavioral") options.useBehavioral = true;
     else if (arg === "--no-behavioral") options.useBehavioral = false;
@@ -217,7 +233,32 @@ function parseArgs(argv: string[]) {
       options.failOn = parseSeverity(args.shift());
     } else if (arg.startsWith("--fail-on=")) {
       options.failOn = parseSeverity(arg.split("=")[1]);
-    } else if (arg === "--help" || arg === "-h") {
+    }
+    else if (arg === "--save") {
+      options.save = true;
+    }
+    else if (arg === "--tag") {
+      const value = args.shift();
+      if (value) options.tags?.push(value);
+    } else if (arg.startsWith("--tag=")) {
+      const value = arg.split("=")[1];
+      if (value) options.tags?.push(value);
+    }
+    else if (arg === "--notes") {
+      const value = args.shift();
+      if (value) options.notes = value;
+    } else if (arg.startsWith("--notes=")) {
+      const value = arg.split("=")[1];
+      if (value) options.notes = value;
+    }
+    else if (arg === "--compare-with") {
+      const value = args.shift();
+      if (value) options.compareWith = value;
+    } else if (arg.startsWith("--compare-with=")) {
+      const value = arg.split("=")[1];
+      if (value) options.compareWith = value;
+    }
+    else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
     }
@@ -251,8 +292,15 @@ Options:
   --no-system       Exclude system skill directories
   --extensions      Include installed browser extensions (Chromium browsers + Firefox unpacked)
   --no-extensions   Exclude browser extensions
+  --ide-extensions  Include installed IDE extensions (VS Code, Cursor, JetBrains, etc.)
+  --no-ide-extensions  Exclude IDE extensions
   --extensions-dir  Add an extra extensions root to scan (repeatable)
+  --ide-extensions-dir  Add an extra IDE extensions root to scan (repeatable)
   --skills-dir      Add an extra skills root to scan (repeatable)
+  --save            Save scan results to local storage for later reference
+  --tag <tag>       Add a tag to the saved scan (repeatable)
+  --notes <text>    Add notes to the saved scan
+  --compare-with <id>  Compare results with a previous scan by ID
   --full-depth      Always search recursively for SKILL.md (slower)
   --recursive       Alias for --full-depth
   --use-behavioral  Enable behavioral heuristic engine
@@ -287,9 +335,128 @@ Examples:
   skill-scanner mcp static --tools ./tools.json --format table
   skill-scanner mcp known-configs
   skill-scanner mcp known-configs --connect --format json
+  skill-scanner history                    List recent scans
+  skill-scanner history --json             Output scan history as JSON
+  skill-scanner history <scan-id>          Show details of a specific scan
+  skill-scanner history --stats            Show scan statistics
+  skill-scanner history --delete <id>      Delete a specific scan
+  skill-scanner history --clear            Delete all scan history
 `;
 
   console.log(help);
+}
+
+async function runHistoryCommand(subcommand: string, options: ScanOptions) {
+  const format = options.format ?? (options.json ? "json" : "table");
+
+  if (subcommand === "--stats" || subcommand === "stats") {
+    const stats = await scanStorage.getStats();
+    if (format === "json") {
+      console.log(JSON.stringify(stats, null, 2));
+    } else {
+      console.log("Scan History Statistics");
+      console.log("======================");
+      console.log(`Total scans: ${stats.totalScans}`);
+      console.log(`Total findings: ${stats.totalFindings}`);
+      console.log("\nFindings by severity:");
+      console.log(`  CRITICAL: ${stats.findingsBySeverity.CRITICAL}`);
+      console.log(`  HIGH: ${stats.findingsBySeverity.HIGH}`);
+      console.log(`  MEDIUM: ${stats.findingsBySeverity.MEDIUM}`);
+      console.log(`  LOW: ${stats.findingsBySeverity.LOW}`);
+      if (stats.dateRange) {
+        console.log(`\nDate range: ${stats.dateRange.earliest} to ${stats.dateRange.latest}`);
+      }
+    }
+    return;
+  }
+
+  if (subcommand === "--clear" || subcommand === "clear") {
+    await scanStorage.deleteAll();
+    console.log("All scan history cleared.");
+    return;
+  }
+
+  if (subcommand?.startsWith("--delete ")) {
+    const id = subcommand.slice(9).trim();
+    if (await scanStorage.delete(id)) {
+      console.log(`Scan ${id} deleted.`);
+    } else {
+      console.error(`Scan ${id} not found.`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  // If subcommand looks like an ID, show details
+  if (subcommand && !subcommand.startsWith("--")) {
+    const scan = await scanStorage.get(subcommand);
+    if (!scan) {
+      console.error(`Scan ${subcommand} not found.`);
+      process.exitCode = 1;
+      return;
+    }
+
+    if (format === "json") {
+      console.log(JSON.stringify(scan, null, 2));
+    } else {
+      console.log(`Scan Details: ${scan.id}`);
+      console.log("=".repeat(50));
+      console.log(`Timestamp: ${scan.timestamp}`);
+      console.log(`Command: ${scan.command}`);
+      console.log(`Target: ${scan.targetPath}`);
+      console.log(`Hostname: ${scan.hostname}`);
+      console.log(`Platform: ${scan.platform}`);
+      if (scan.tags?.length) console.log(`Tags: ${scan.tags.join(", ")}`);
+      if (scan.notes) console.log(`Notes: ${scan.notes}`);
+      console.log("\nSummary:");
+      console.log(`  Files scanned: ${scan.summary.scannedFiles}`);
+      console.log(`  Findings: ${scan.summary.findingCount}`);
+      console.log(`  Elapsed: ${scan.summary.elapsedMs}ms`);
+      console.log("\nFindings by severity:");
+      console.log(`  CRITICAL: ${scan.summary.severities.CRITICAL}`);
+      console.log(`  HIGH: ${scan.summary.severities.HIGH}`);
+      console.log(`  MEDIUM: ${scan.summary.severities.MEDIUM}`);
+      console.log(`  LOW: ${scan.summary.severities.LOW}`);
+      if (scan.findings.length > 0) {
+        console.log("\nFindings:");
+        scan.findings.forEach((f, i) => {
+          console.log(`  ${i + 1}. [${f.severity}] ${f.ruleId}: ${f.message}`);
+          if (f.file) console.log(`     File: ${f.file}:${f.line ?? ""}`);
+        });
+      }
+    }
+    return;
+  }
+
+  // Default: list recent scans
+  const query: import("./storage/scan-storage.ts").ScanQuery = {};
+
+  if (options.targetPath) {
+    query.targetPath = options.targetPath;
+  }
+
+  const scans = await scanStorage.query(query);
+
+  if (format === "json") {
+    console.log(JSON.stringify(scans, null, 2));
+  } else {
+    if (scans.length === 0) {
+      console.log("No scans found in history.");
+      return;
+    }
+
+    console.log("Recent Scans");
+    console.log("============");
+    scans.forEach((scan, i) => {
+      const date = new Date(scan.timestamp).toLocaleString();
+      const tags = scan.tags?.length ? ` [${scan.tags.join(", ")}]` : "";
+      console.log(`${i + 1}. ${scan.id}`);
+      console.log(`   Date: ${date}`);
+      console.log(`   Target: ${scan.targetPath}`);
+      console.log(`   Files: ${scan.summary.scannedFiles}, Findings: ${scan.summary.findingCount}${tags}`);
+      console.log();
+    });
+  }
 }
 
 async function collectFiles(scanRoots: string[], options?: { includeDocs?: boolean }): Promise<string[]> {
@@ -360,11 +527,12 @@ async function runScan(targetPath: string, options: ScanOptions) {
     fullDepth: options.fullDepth,
   });
   const extensions = options.includeExtensions ? await discoverBrowserExtensions(options.extraExtensionDirs) : [];
+  const ideExtensions = options.includeIDEExtensions ? await discoverIDEExtensions(options.extraIDEExtensionDirs) : [];
 
   const targets: Target[] = [
-    ...skills.map((s) => ({ kind: "skill", name: s.name, path: s.path })),
+    ...skills.map((s) => ({ kind: "skill" as const, name: s.name, path: s.path })),
     ...extensions.map((e) => ({
-      kind: "extension",
+      kind: "extension" as const,
       name: e.name,
       path: e.path,
       meta: {
@@ -374,23 +542,35 @@ async function runScan(targetPath: string, options: ScanOptions) {
         version: e.version,
       },
     })),
+    ...ideExtensions.map((e) => ({
+      kind: "ide-extension" as const,
+      name: e.name,
+      path: e.path,
+      meta: {
+        ide: e.ide,
+        extensionId: e.extensionId,
+        version: e.version,
+        publisher: e.publisher,
+        isBuiltin: e.isBuiltin,
+      },
+    })),
   ];
 
   const scanPlans = targets.length
     ? await Promise.all(
-        targets.map(async (target) => ({
-          name: target.name,
-          path: target.path,
-          files: await collectFiles([target.path], { includeDocs: true }),
-        }))
-      )
+      targets.map(async (target) => ({
+        name: target.name,
+        path: target.path,
+        files: await collectFiles([target.path], { includeDocs: true }),
+      }))
+    )
     : [
-        {
-          name: "root",
-          path: basePath,
-          files: await collectFiles([basePath], { includeDocs: false }),
-        },
-      ];
+      {
+        name: "root",
+        path: basePath,
+        files: await collectFiles([basePath], { includeDocs: false }),
+      },
+    ];
 
   const totalFiles = scanPlans.reduce((sum, plan) => sum + plan.files.length, 0);
 
@@ -455,8 +635,8 @@ async function runScan(targetPath: string, options: ScanOptions) {
 
   const filteredFindings = options.enableMeta ? applyMetaAnalyzer(findings) : findings;
 
-  const result = {
-    targets: targets.length ? targets : [{ kind: "path", name: "root", path: basePath }],
+  const result: ScanResult = {
+    targets: targets.length ? targets : [{ kind: "path" as const, name: "root", path: basePath }],
     findings: filteredFindings,
     scannedFiles: totalFiles,
     elapsedMs,
@@ -491,6 +671,27 @@ async function runScan(targetPath: string, options: ScanOptions) {
 
   if (shouldFail(result.findings, options.failOn)) {
     process.exitCode = 2;
+  }
+
+  if (options.save) {
+    const stored = await scanStorage.save(result, "scan", targetPath, {
+      tags: options.tags,
+      notes: options.notes,
+    });
+    console.log(`\nScan saved with ID: ${stored.id}`);
+
+    if (options.compareWith) {
+      const comparison = await scanStorage.compare(options.compareWith, stored.id);
+      if (comparison) {
+        console.log("\nComparison with previous scan:");
+        console.log(`  New findings: ${comparison.added.length}`);
+        console.log(`  Resolved findings: ${comparison.removed.length}`);
+        console.log(`  Unchanged: ${comparison.unchanged.length}`);
+        if (comparison.severityChanges.length > 0) {
+          console.log(`  Severity changes: ${comparison.severityChanges.length}`);
+        }
+      }
+    }
   }
 
   return result;
@@ -556,18 +757,18 @@ async function runMcpRemoteScan(serverUrl: string, options: ScanOptions, mcp: Mc
       : 1_048_576;
 
   const collected = await collectFromServer(serverUrl, {
-      headers,
-      scan: scanList,
-      readResources: Boolean(mcp.readResources),
-      allowedMimeTypes,
-      maxResourceBytes,
-    }).catch((e) => {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(`Failed to connect to MCP server: ${serverUrl}`);
-      console.error(msg);
-      process.exitCode = 1;
-      return null;
-    });
+    headers,
+    scan: scanList,
+    readResources: Boolean(mcp.readResources),
+    allowedMimeTypes,
+    maxResourceBytes,
+  }).catch((e) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`Failed to connect to MCP server: ${serverUrl}`);
+    console.error(msg);
+    process.exitCode = 1;
+    return null;
+  });
 
   if (!collected) return;
 
@@ -1081,7 +1282,7 @@ async function watchAndScan(targetPath: string, options: ScanOptions) {
 
   const initial = await runScan(targetPath, options);
   if (initial) {
-    previousKeys = new Set(initial.findings.map((finding) => `${finding.ruleId}|${finding.file}|${finding.line ?? ""}`));
+    previousKeys = new Set(initial.findings.map((finding: { ruleId: string, file: string, line?: number }) => `${finding.ruleId}|${finding.file}|${finding.line ?? ""}`));
   }
 
   let timer: NodeJS.Timeout | null = null;
@@ -1100,6 +1301,9 @@ async function watchAndScan(targetPath: string, options: ScanOptions) {
   });
   if (options.includeExtensions) {
     watchRoots.push(...(await discoverBrowserExtensionWatchRoots(options.extraExtensionDirs)));
+  }
+  if (options.includeIDEExtensions) {
+    watchRoots.push(...(await discoverIDEExtensionWatchRoots(options.extraIDEExtensionDirs)));
   }
 
   const existingRoots: string[] = [];
@@ -1140,6 +1344,8 @@ if (command === "scan") {
   await runScan(targetPath, options);
 } else if (command === "watch") {
   await watchAndScan(targetPath, options);
+} else if (command === "history" || command === "hist") {
+  await runHistoryCommand(targetPath, options);
 } else if (command === "mcp") {
   if (mcp.subcommand === "remote") {
     await runMcpRemoteScan(mcp.serverUrl ?? "", options, mcp);
