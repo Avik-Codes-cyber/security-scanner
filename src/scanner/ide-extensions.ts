@@ -183,11 +183,30 @@ interface VSCodeExtensionManifest {
   };
 }
 
+async function resolveNLSString(extensionPath: string, value: string): Promise<string> {
+  if (!value?.startsWith("%")) return value;
+
+  try {
+    const nlsPath = join(extensionPath, "package.nls.json");
+    const nlsContent = await readFile(nlsPath, "utf-8");
+    const nls = JSON.parse(nlsContent) as Record<string, string>;
+    const key = value.slice(1, -1); // Remove % from both sides
+    return nls[key] || value;
+  } catch {
+    return value;
+  }
+}
+
 async function parseVSCodeExtension(extensionPath: string): Promise<VSCodeExtensionManifest | null> {
   try {
     const packageJsonPath = join(extensionPath, "package.json");
     const content = await readFile(packageJsonPath, "utf-8");
     const manifest = JSON.parse(content) as VSCodeExtensionManifest;
+
+    // Resolve NLS placeholders in displayName
+    if (manifest.displayName?.startsWith("%")) {
+      manifest.displayName = await resolveNLSString(extensionPath, manifest.displayName);
+    }
 
     // Detect AI-related extensions using pre-compiled regex (single pass)
     const descLower = manifest.description?.toLowerCase() ?? "";

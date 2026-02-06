@@ -1,6 +1,6 @@
 import { homedir } from "os";
 import { join } from "path";
-import { fileExists } from "../../utils/fs.ts";
+import { fileExists } from "../../utils/fs";
 
 function expandHome(p: string): string {
   if (p.startsWith("~/")) return join(homedir(), p.slice(2));
