@@ -8,10 +8,23 @@ const COLOR = {
   text: "\x1b[38;5;145m",
   gray: "\x1b[90m",
   red: "\x1b[31m",
+  redBg: "\x1b[41m",
   yellow: "\x1b[33m",
+  yellowBg: "\x1b[43m",
   magenta: "\x1b[35m",
+  magentaBg: "\x1b[45m",
   cyan: "\x1b[36m",
+  cyanBg: "\x1b[46m",
   blue: "\x1b[34m",
+  blueBg: "\x1b[44m",
+  green: "\x1b[32m",
+  greenBg: "\x1b[42m",
+  white: "\x1b[37m",
+  whiteBg: "\x1b[47m",
+  brightRed: "\x1b[91m",
+  brightYellow: "\x1b[93m",
+  brightCyan: "\x1b[96m",
+  brightGreen: "\x1b[92m",
 };
 
 const LOGO_LINES = [
@@ -51,15 +64,30 @@ function gradientChunks(text: string, palette: string[]): string {
 function colorizeSeverity(sev: Severity): string {
   switch (sev) {
     case "CRITICAL":
-      return `${COLOR.red}${sev}${COLOR.reset}`;
+      return `${COLOR.brightRed}${COLOR.bold}${sev}${COLOR.reset}`;
     case "HIGH":
-      return `${COLOR.magenta}${sev}${COLOR.reset}`;
+      return `${COLOR.magenta}${COLOR.bold}${sev}${COLOR.reset}`;
     case "MEDIUM":
-      return `${COLOR.yellow}${sev}${COLOR.reset}`;
+      return `${COLOR.brightYellow}${sev}${COLOR.reset}`;
     case "LOW":
       return `${COLOR.cyan}${sev}${COLOR.reset}`;
     default:
       return sev;
+  }
+}
+
+function getBadgeForSeverity(sev: Severity): string {
+  switch (sev) {
+    case "CRITICAL":
+      return `${COLOR.redBg}${COLOR.bold} ! ${COLOR.reset}`;
+    case "HIGH":
+      return `${COLOR.magentaBg}${COLOR.bold} ⚠ ${COLOR.reset}`;
+    case "MEDIUM":
+      return `${COLOR.yellowBg}${COLOR.bold} ○ ${COLOR.reset}`;
+    case "LOW":
+      return `${COLOR.cyanBg}${COLOR.bold} ○ ${COLOR.reset}`;
+    default:
+      return " ";
   }
 }
 
@@ -90,7 +118,8 @@ function progressBar(current: number, total: number, width: number): string {
   const ratio = Math.min(1, Math.max(0, current / total));
   const filled = Math.round(width * ratio);
   const empty = Math.max(0, width - filled);
-  return `${COLOR.blue}${"█".repeat(filled)}${COLOR.gray}${"░".repeat(empty)}${COLOR.reset}`;
+  const pct = Math.round(ratio * 100);
+  return `${COLOR.brightGreen}${"█".repeat(filled)}${COLOR.gray}${"░".repeat(empty)}${COLOR.reset} ${COLOR.bold}${pct}%${COLOR.reset}`;
 }
 
 function wrapText(text: string, width: number): string[] {
@@ -142,6 +171,18 @@ export type TargetSummary = {
   counts: Record<Severity, number>;
 };
 
+export type ScanStats = {
+  startTime: number;
+  endTime?: number;
+  totalFiles: number;
+  scannedFiles: number;
+  totalFindings: number;
+  criticalCount: number;
+  highCount: number;
+  mediumCount: number;
+  lowCount: number;
+};
+
 export type ScanUi = {
   start: (totalFiles: number, totalTargets?: number) => void;
   beginTarget: (index: number, total: number, name: string, files: number) => void;
@@ -150,6 +191,7 @@ export type ScanUi = {
   setCurrentFindings: (findings: Finding[]) => void;
   completeTarget: (summary: TargetSummary, findings?: Finding[]) => void;
   finish: () => void;
+  getStats: () => ScanStats;
 };
 
 export function createTui(enabled: boolean): ScanUi {
@@ -163,9 +205,21 @@ export function createTui(enabled: boolean): ScanUi {
       setCurrentFindings: (_findings: Finding[]) => noop(),
       completeTarget: (_summary: TargetSummary, _findings?: Finding[]) => noop(),
       finish: () => noop(),
+      getStats: () => ({
+        startTime: 0,
+        totalFiles: 0,
+        scannedFiles: 0,
+        totalFindings: 0,
+        criticalCount: 0,
+        highCount: 0,
+        mediumCount: 0,
+        lowCount: 0,
+      }),
     };
   }
 
+  const startTime = Date.now();
+  let endTime: number | undefined;
   let totalFiles = 0;
   let totalTargets = 0;
   let scannedFiles = 0;
@@ -187,7 +241,7 @@ export function createTui(enabled: boolean): ScanUi {
     const counts = summarizeFindings(displayFindings);
 
     const termWidth = Math.max(90, process.stdout.columns ?? 120);
-    const width = Math.max(90, Math.min(termWidth, 140));
+    const width = Math.max(90, Math.min(termWidth, 160));
     const innerWidth = width - 2;
 
     const logoLines = LOGO_LINES.map((lineText) => {
@@ -196,25 +250,33 @@ export function createTui(enabled: boolean): ScanUi {
 
     const tagline = center(`${COLOR.dim}Security scanner for skills, browser extensions, and MCP servers${COLOR.reset}`, innerWidth);
 
-    const headerText = `${COLOR.bold}Security Scanner${COLOR.reset}`;
-    const skillsText = `${COLOR.dim}Targets${COLOR.reset} ${totalTargets}`;
-    const statusText = `${COLOR.dim}Files${COLOR.reset} ${scannedFiles}/${totalFiles}`;
-    const headerLine = pad(`${headerText}  ${skillsText}  ${statusText}`, innerWidth - 2);
+    const elapsedTime = (Date.now() - startTime) / 1000;
+    const headerText = `${COLOR.bold}🛡️  Security Scanner${COLOR.reset}`;
+    const skillsText = `${COLOR.dim}Targets${COLOR.reset} ${COLOR.bold}${totalTargets}${COLOR.reset}`;
+    const statusText = `${COLOR.dim}Files${COLOR.reset} ${COLOR.bold}${scannedFiles}/${totalFiles}${COLOR.reset}`;
+    const timeText = `${COLOR.dim}Elapsed${COLOR.reset} ${COLOR.bold}${elapsedTime.toFixed(1)}s${COLOR.reset}`;
+    const headerLine = pad(`${headerText}  ${skillsText}  ${statusText}  ${timeText}`, innerWidth - 2);
 
-    const barWidth = Math.max(20, innerWidth - 30);
+    const barWidth = Math.max(20, innerWidth - 40);
     const bar = progressBar(scannedFiles, totalFiles, barWidth);
-    const progressText = `Progress: ${bar} ${scannedFiles}/${totalFiles}`;
+    const progressText = `Progress: ${bar}`;
 
     const skillLine = currentTargetName
-      ? `${COLOR.dim}Target${COLOR.reset}: ${currentTargetName} (${currentTargetIndex}/${currentTargetTotal})  ${COLOR.dim}Target Files${COLOR.reset}: ${currentTargetScanned}/${currentTargetFiles}`
-      : `${COLOR.dim}Target${COLOR.reset}: -`;
+      ? `${COLOR.dim}Target${COLOR.reset} ${COLOR.bold}${currentTargetName}${COLOR.reset} (${currentTargetIndex}/${currentTargetTotal})  ${COLOR.dim}Files${COLOR.reset} ${currentTargetScanned}/${currentTargetFiles}`
+      : `${COLOR.dim}Target${COLOR.reset} ${COLOR.gray}idle${COLOR.reset}`;
 
-    const summary = `Findings: ${displayFindings.length} | ${COLOR.red}CRITICAL${COLOR.reset}:${counts.CRITICAL} ${COLOR.magenta}HIGH${COLOR.reset}:${counts.HIGH} ${COLOR.yellow}MEDIUM${COLOR.reset}:${counts.MEDIUM} ${COLOR.cyan}LOW${COLOR.reset}:${counts.LOW}`;
+    const totalFindings = displayFindings.length;
+    const hasCritical = counts.CRITICAL > 0;
+    const hasHigh = counts.HIGH > 0;
+    const hasMedium = counts.MEDIUM > 0;
+    const findingsPart = hasCritical || hasHigh || hasMedium
+      ? `${COLOR.bold}⚠️  Findings: ${totalFindings}${COLOR.reset} │ ${COLOR.brightRed}●${COLOR.reset}${counts.CRITICAL} ${COLOR.magenta}●${COLOR.reset}${counts.HIGH} ${COLOR.brightYellow}●${COLOR.reset}${counts.MEDIUM} ${COLOR.cyan}●${COLOR.reset}${counts.LOW}`
+      : `${COLOR.dim}Findings: ${totalFindings}${COLOR.reset}`;
 
-    const colSev = 10;
-    const colRule = 26;
-    const colFile = Math.max(30, Math.min(64, Math.floor(innerWidth * 0.48)));
-    const colMsg = Math.max(20, innerWidth - (colSev + colFile + colRule + 6));
+    const colSev = 12;
+    const colFile = Math.max(28, Math.min(60, Math.floor(innerWidth * 0.40)));
+    const colRule = 20;
+    const colMsg = Math.max(20, innerWidth - (colSev + colFile + colRule + 8));
 
     const tableHeader = [
       pad(`${COLOR.bold}Severity${COLOR.reset}`, colSev),
@@ -224,17 +286,19 @@ export function createTui(enabled: boolean): ScanUi {
     ].join("  ");
 
     const rows: string[] = [];
-    for (const finding of displayFindings) {
+    for (const finding of displayFindings.slice(0, 50)) {
       const severity = colorizeSeverity(finding.severity);
+      const badge = getBadgeForSeverity(finding.severity);
       const fileLines = wrapText(finding.file, colFile);
       const ruleLines = wrapText(finding.ruleId, colRule);
       const msgLines = wrapText(finding.message, colMsg);
       const lineCount = Math.max(fileLines.length, ruleLines.length, msgLines.length, 1);
 
       for (let i = 0; i < lineCount; i++) {
+        const sevCell = i === 0 ? `${badge} ${severity}` : "";
         rows.push(
           [
-            pad(i === 0 ? severity : "", colSev),
+            pad(sevCell, colSev + 2),
             pad(fileLines[i] ?? "", colFile),
             pad(ruleLines[i] ?? "", colRule),
             pad(msgLines[i] ?? "", colMsg),
@@ -243,37 +307,36 @@ export function createTui(enabled: boolean): ScanUi {
       }
     }
 
+    const moreFindings = displayFindings.length > 50 ? displayFindings.length - 50 : 0;
     const body =
       rows.length > 0
-        ? rows
+        ? [
+          ...rows,
+          ...(moreFindings > 0 ? [pad(`${COLOR.gray}... and ${moreFindings} more findings${COLOR.reset}`, innerWidth - 2)] : []),
+        ]
         : [
-          [
-            pad("", colSev),
-            pad("", colFile),
-            pad("", colRule),
-            pad(`${COLOR.gray}No findings yet.${COLOR.reset}`, colMsg),
-          ].join("  "),
+          pad(`${COLOR.gray}No findings yet.${COLOR.reset}`, innerWidth - 2),
         ];
 
     const completedHeader = [
-      pad(`${COLOR.bold}Completed Target${COLOR.reset}`, Math.max(20, Math.floor(innerWidth * 0.4))),
+      pad(`${COLOR.bold}Completed Target${COLOR.reset}`, Math.max(22, Math.floor(innerWidth * 0.35))),
       pad(`${COLOR.bold}Files${COLOR.reset}`, 8),
       pad(`${COLOR.bold}Findings${COLOR.reset}`, 10),
-      pad(`${COLOR.bold}Critical${COLOR.reset}`, 9),
-      pad(`${COLOR.bold}High${COLOR.reset}`, 6),
-      pad(`${COLOR.bold}Medium${COLOR.reset}`, 8),
-      pad(`${COLOR.bold}Low${COLOR.reset}`, 6),
+      pad(`${COLOR.bold}🔴${COLOR.reset}`, 3),
+      pad(`${COLOR.bold}🟠${COLOR.reset}`, 3),
+      pad(`${COLOR.bold}🟡${COLOR.reset}`, 3),
+      pad(`${COLOR.bold}🔵${COLOR.reset}`, 3),
     ].join("  ");
 
     const completedRows = completed.map((item) => {
       return [
-        pad(item.name, Math.max(20, Math.floor(innerWidth * 0.4))),
+        pad(item.name, Math.max(22, Math.floor(innerWidth * 0.35))),
         pad(String(item.files), 8),
         pad(String(item.findings), 10),
-        pad(String(item.counts.CRITICAL), 9),
-        pad(String(item.counts.HIGH), 6),
-        pad(String(item.counts.MEDIUM), 8),
-        pad(String(item.counts.LOW), 6),
+        pad(String(item.counts.CRITICAL), 3),
+        pad(String(item.counts.HIGH), 3),
+        pad(String(item.counts.MEDIUM), 3),
+        pad(String(item.counts.LOW), 3),
       ].join("  ");
     });
 
@@ -290,7 +353,7 @@ export function createTui(enabled: boolean): ScanUi {
       line(headerLine, innerWidth),
       line(progressText, innerWidth),
       line(skillLine, innerWidth),
-      line(summary, innerWidth),
+      line(findingsPart, innerWidth),
       mid,
       line(tableHeader, innerWidth),
       ...body.map((row) => line(row, innerWidth)),
@@ -350,12 +413,27 @@ export function createTui(enabled: boolean): ScanUi {
       scheduleRender();
     },
     finish() {
+      endTime = Date.now();
       if (scheduled) {
         clearTimeout(scheduled);
         scheduled = null;
       }
       render();
       finished = true;
+    },
+    getStats() {
+      const counts = summarizeFindings([...currentFindings, ...lastFindings]);
+      return {
+        startTime,
+        endTime,
+        totalFiles,
+        scannedFiles,
+        totalFindings: currentFindings.length + lastFindings.length,
+        criticalCount: counts.CRITICAL,
+        highCount: counts.HIGH,
+        mediumCount: counts.MEDIUM,
+        lowCount: counts.LOW,
+      };
     },
   };
 }

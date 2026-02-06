@@ -11,6 +11,7 @@ import { scanFile } from "./scanner/scan-file";
 import { scanContentItem } from "./scanner/scan-content";
 import type { Finding, Severity, ScanOptions, Target, ScanResult } from "./scanner/types.ts";
 import { applyMetaAnalyzer, formatSummary, renderTable, shouldFail, summarizeFindings, toJson } from "./scanner/report";
+import { generateReport } from "./scanner/report-generator";
 import { applyFixes } from "./scanner/fix";
 import { toSarif } from "./scanner/sarif";
 import { createTui } from "./utils/tui";
@@ -258,6 +259,26 @@ function parseArgs(argv: string[]) {
       const value = arg.split("=")[1];
       if (value) options.compareWith = value;
     }
+    else if (arg === "--report-dir") {
+      const value = args.shift();
+      if (value) options.reportDir = value;
+    } else if (arg.startsWith("--report-dir=")) {
+      const value = arg.split("=")[1];
+      if (value) options.reportDir = value;
+    }
+    else if (arg === "--report-format") {
+      const value = args.shift();
+      if (value) {
+        const formats = value.split(",").map((f) => f.trim().toLowerCase()) as ("json" | "html" | "csv")[];
+        options.reportFormats = formats;
+      }
+    } else if (arg.startsWith("--report-format=")) {
+      const value = arg.split("=")[1];
+      if (value) {
+        const formats = value.split(",").map((f) => f.trim().toLowerCase()) as ("json" | "html" | "csv")[];
+        options.reportFormats = formats;
+      }
+    }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -283,6 +304,8 @@ Options:
   --json            Output JSON report (alias for --format json)
   --format <type>   Output format: table | json | sarif
   --output <file>   Write report to file instead of stdout
+  --report-dir <dir>    Generate report files in the specified directory
+  --report-format <fmt> Report file formats (comma-separated): json,html,csv (default: html,json)
   --fail-on-findings  Exit non-zero if any findings are detected
   --fail-on <lvl>   Exit non-zero if findings at or above level (LOW, MEDIUM, HIGH, CRITICAL)
   --tui             Force TUI rendering
@@ -328,9 +351,13 @@ Examples:
   skill-scanner scan /path/to/skill
   skill-scanner scan /path/to/skill --use-behavioral
   skill-scanner scan /path/to/skill --enable-meta
+  skill-scanner scan /path/to/skill --report-dir ./reports
+  skill-scanner scan /path/to/skill --report-dir ./reports --report-format html,json,csv
   skill-scanner scan-all /path/to/skills --recursive --use-behavioral
   skill-scanner scan-all ./skills --fail-on-findings --format sarif --output results.sarif
   skill-scanner scan . --extensions
+  skill-scanner scan . --report-dir /tmp/security-reports --report-format html
+  skill-scanner scan ./my-project --save --report-dir ./scans --report-format html,json
   skill-scanner mcp remote https://your-server/mcp --format json
   skill-scanner mcp static --tools ./tools.json --format table
   skill-scanner mcp known-configs
@@ -671,6 +698,30 @@ async function runScan(targetPath: string, options: ScanOptions) {
 
   if (shouldFail(result.findings, options.failOn)) {
     process.exitCode = 2;
+  }
+
+  // Generate report files if specified
+  if (options.reportDir) {
+    try {
+      const reportFormats = options.reportFormats || ["html", "json"];
+      const generatedReport = await generateReport(result, result.targets, {
+        reportDir: options.reportDir,
+        formats: reportFormats,
+      });
+
+      console.log("\n📄 Report Generated:");
+      if (generatedReport.htmlPath) {
+        console.log(`  HTML: ${generatedReport.htmlPath}`);
+      }
+      if (generatedReport.jsonPath) {
+        console.log(`  JSON: ${generatedReport.jsonPath}`);
+      }
+      if (generatedReport.csvPath) {
+        console.log(`  CSV: ${generatedReport.csvPath}`);
+      }
+    } catch (err) {
+      console.error("Error generating report:", err instanceof Error ? err.message : String(err));
+    }
   }
 
   if (options.save) {

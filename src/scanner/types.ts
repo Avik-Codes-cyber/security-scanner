@@ -59,6 +59,8 @@ export type ScanOptions = {
   notes?: string;
   compareWith?: string;
   targetPath?: string;
+  reportDir?: string;
+  reportFormats?: ("json" | "html" | "csv")[];
 };
 
 export type ScanResult = {
