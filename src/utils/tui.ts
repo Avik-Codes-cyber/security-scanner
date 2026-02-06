@@ -234,6 +234,21 @@ export function createTui(enabled: boolean): ScanUi {
   const DEBOUNCE_DELAY = 200;
   const MIN_RENDER_INTERVAL = 100;
 
+  // Cleanup function to ensure proper terminal state restoration
+  const cleanup = () => {
+    process.stdout.write("\x1b[?25h");
+  };
+
+  // Register signal handlers for proper cleanup on interrupt
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+  for (const sig of signals) {
+    const handler = () => {
+      cleanup();
+      process.exit(0);
+    };
+    process.on(sig, handler);
+  }
+
   const render = () => {
     scheduled = null;
     lastRenderTime = Date.now();
@@ -364,13 +379,18 @@ export function createTui(enabled: boolean): ScanUi {
     ].join("\n");
 
     if (isFirstRender) {
-      // First render: switch to alternate screen buffer, hide cursor, write output
-      process.stdout.write("\x1b[?1049h\x1b[?25l\x1b[H" + output);
+      // First render: hide cursor, write output
+      process.stdout.write("\x1b[?25l" + output);
       isFirstRender = false;
     } else {
-      // Subsequent renders: move cursor to home and overwrite in-place
-      process.stdout.write("\x1b[H\x1b[J" + output);
+      // Move cursor up to the previous render and overwrite in-place
+      if (lastOutputLineCount > 0) {
+        process.stdout.write(`\x1b[${lastOutputLineCount}A`);
+      }
+      process.stdout.write("\x1b[J" + output);
     }
+
+    lastOutputLineCount = output.split("\n").length;
   };
 
   const scheduleRender = () => {
@@ -436,8 +456,9 @@ export function createTui(enabled: boolean): ScanUi {
       }
       render();
       finished = true;
-      // Leave alternate screen buffer and show cursor again
-      process.stdout.write("\x1b[?1049l\x1b[?25h");
+      // Clean up terminal state
+      cleanup();
+      process.stdout.write("\n");
     },
     getStats() {
       const counts = summarizeFindings([...currentFindings, ...lastFindings]);
