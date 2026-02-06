@@ -363,27 +363,21 @@ export function createTui(enabled: boolean): ScanUi {
       bottom,
     ].join("\n");
 
-    const outputLines = output.split("\n");
-    const currentLineCount = outputLines.length;
-
     if (isFirstRender) {
-      // Clear screen and position cursor at home for first render
-      process.stdout.write("\x1b[2J\x1b[H" + output + "\n");
+      // First render: clear entire screen, move to home, write output
+      process.stdout.write("\x1b[2J\x1b[?25l\x1b[H" + output + "\n");
       isFirstRender = false;
+      lastOutputLineCount = output.split("\n").length;
     } else {
-      // For subsequent renders, move cursor home and update content smoothly
-      process.stdout.write("\x1b[H" + output);
-
-      // If the new output is shorter, clear the extra lines at the bottom
-      if (currentLineCount < lastOutputLineCount) {
-        const linesToClear = lastOutputLineCount - currentLineCount;
-        process.stdout.write("\n\x1b[J"); // Clear from cursor to end of display
-      } else {
-        process.stdout.write("\n");
+      // Subsequent renders: move to home and write the same number of lines, leaving the rest untouched
+      process.stdout.write("\x1b[H" + output + "\x1b[K");
+      // Clear any lines below if needed
+      const outputLineCount = output.split("\n").length;
+      if (outputLineCount < lastOutputLineCount) {
+        process.stdout.write("\x1b[J");
       }
+      lastOutputLineCount = outputLineCount;
     }
-
-    lastOutputLineCount = currentLineCount;
   };
 
   const scheduleRender = () => {
@@ -449,6 +443,8 @@ export function createTui(enabled: boolean): ScanUi {
       }
       render();
       finished = true;
+      // Show cursor again
+      process.stdout.write("\x1b[?25h\n");
     },
     getStats() {
       const counts = summarizeFindings([...currentFindings, ...lastFindings]);
