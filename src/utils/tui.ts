@@ -364,19 +364,12 @@ export function createTui(enabled: boolean): ScanUi {
     ].join("\n");
 
     if (isFirstRender) {
-      // First render: clear entire screen, move to home, write output
-      process.stdout.write("\x1b[2J\x1b[?25l\x1b[H" + output + "\n");
+      // First render: switch to alternate screen buffer, hide cursor, write output
+      process.stdout.write("\x1b[?1049h\x1b[?25l\x1b[H" + output);
       isFirstRender = false;
-      lastOutputLineCount = output.split("\n").length;
     } else {
-      // Subsequent renders: move to home and write the same number of lines, leaving the rest untouched
-      process.stdout.write("\x1b[H" + output + "\x1b[K");
-      // Clear any lines below if needed
-      const outputLineCount = output.split("\n").length;
-      if (outputLineCount < lastOutputLineCount) {
-        process.stdout.write("\x1b[J");
-      }
-      lastOutputLineCount = outputLineCount;
+      // Subsequent renders: move cursor to home and overwrite in-place
+      process.stdout.write("\x1b[H\x1b[J" + output);
     }
   };
 
@@ -443,8 +436,8 @@ export function createTui(enabled: boolean): ScanUi {
       }
       render();
       finished = true;
-      // Show cursor again
-      process.stdout.write("\x1b[?25h\n");
+      // Leave alternate screen buffer and show cursor again
+      process.stdout.write("\x1b[?1049l\x1b[?25h");
     },
     getStats() {
       const counts = summarizeFindings([...currentFindings, ...lastFindings]);

@@ -389,13 +389,28 @@ export async function discoverIDEExtensions(extraRoots?: string[]): Promise<IDEE
     }
   }
 
-  // Deduplicate by path
-  const unique = new Map<string, IDEExtensionTarget>();
+  // Deduplicate by path first, then by extensionId (keep newest version)
+  const uniqueByPath = new Map<string, IDEExtensionTarget>();
   for (const t of targets) {
-    if (t.path) unique.set(t.path, t);
+    if (t.path) uniqueByPath.set(t.path, t);
   }
 
-  return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name));
+  // Second pass: deduplicate by extensionId, keeping the entry with the newer version
+  const uniqueById = new Map<string, IDEExtensionTarget>();
+  for (const t of uniqueByPath.values()) {
+    const key = t.extensionId.toLowerCase();
+    const existing = uniqueById.get(key);
+    if (!existing) {
+      uniqueById.set(key, t);
+    } else {
+      // Keep the one with the newer version (or the first one if versions can't be compared)
+      if (t.version && existing.version && t.version > existing.version) {
+        uniqueById.set(key, t);
+      }
+    }
+  }
+
+  return Array.from(uniqueById.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function discoverIDEExtensionWatchRoots(extraRoots?: string[]): Promise<string[]> {

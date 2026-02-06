@@ -72,7 +72,7 @@
     - "\\beval\\s*\\("
     - "\\bexec\\s*\\("
     - "\\b__import__\\s*\\("
-    - "(?<!re\\.)\\bcompile\\s*\\("  # compile() but not re.compile()
+    - "(?<!re\\.)\\bcompile\\s*\\(" # compile() but not re.compile()
   file_types: [python]
   description: "Dangerous code execution functions that can execute arbitrary code"
   remediation: "Avoid eval(), exec(), and compile(). Use safer alternatives like ast.literal_eval() or operator module"
@@ -698,3 +698,190 @@
   file_types: [any]
   description: "Suspicious multi-step tool chaining that could exfiltrate data"
   remediation: "Require explicit user approval before multi-step data flows"
+
+# ============================================================================
+# CATEGORY 12: PROTOTYPE POLLUTION & OBJECT INJECTION
+# ============================================================================
+
+- id: PROTOTYPE_POLLUTION
+  category: code_execution
+  severity: HIGH
+  patterns:
+    - "\\b__proto__\\s*[\\[\\.]"
+    - "\\bconstructor\\s*\\.\\s*prototype\\b"
+    - "\\bObject\\.assign\\s*\\(\\s*\\{\\}\\s*,"
+    - "\\b(merge|extend|defaults?|deepMerge|deepExtend)\\s*\\([^)]*(?:req\\.|userInput|params|query|body)"
+    - "\\[\\s*['\"]__proto__['\"]\\s*\\]"
+    - "\\[\\s*['\"]constructor['\"]\\s*\\]\\s*\\[\\s*['\"]prototype['\"]\\s*\\]"
+  file_types: [javascript, typescript]
+  description: "Prototype pollution vulnerability allowing object injection"
+  remediation: "Use Object.create(null) for maps, validate keys, and avoid recursive merges with untrusted input"
+
+# ============================================================================
+# CATEGORY 13: PATH TRAVERSAL & DIRECTORY ESCAPE
+# ============================================================================
+
+- id: PATH_TRAVERSAL_GENERIC
+  category: data_exfiltration
+  severity: HIGH
+  patterns:
+    - "\\.\\.[\\/\\\\]"
+    - "\\b(readFile|readFileSync|createReadStream|readdir|readdirSync)\\s*\\([^)]*(?:req\\.|params\\.|query\\.|body\\.|args\\[|argv)"
+    - "\\b(fs\\.(readFile|writeFile|unlink|mkdir|rmdir|stat|access)|path\\.join)\\s*\\([^)]*(?:req\\.|params\\.|query\\.|body\\.)"
+    - "\\b(open|read|write)\\s*\\([^)]*(?:request\\.|flask\\.request|params|query_string)"
+    - "%2[eE]%2[eE][\\/\\\\%]"
+    - "\\.\\.%2[fF]"
+    - "%2[fF]\\.\\."
+  file_types: [any]
+  description: "Path traversal attack allowing access to files outside intended directory"
+  remediation: "Validate and sanitize file paths. Use path.resolve() and verify the result is within allowed directories"
+
+# ============================================================================
+# CATEGORY 14: DESERIALIZATION ATTACKS
+# ============================================================================
+
+- id: UNSAFE_DESERIALIZATION
+  category: code_execution
+  severity: CRITICAL
+  patterns:
+    - "\\bpickle\\.loads?\\s*\\("
+    - "\\byaml\\.(?:load|unsafe_load)\\s*\\([^)]*(?!Loader)"
+    - "\\byaml\\.load\\s*\\([^)]*$"
+    - "\\bshelve\\.open\\s*\\("
+    - "\\bmarshal\\.loads?\\s*\\("
+    - "\\bjsonpickle\\.decode\\s*\\("
+    - "\\bunserialize\\s*\\("
+    - "\\bObjectInputStream\\b"
+    - "\\bdeserialize\\s*\\([^)]*(?:user|input|request|body|params|query)"
+    - "\\bJSON\\.parse\\s*\\([^)]*(?:req\\.|body\\.|params\\.|query\\.)"
+  file_types: [any]
+  description: "Unsafe deserialization of untrusted data can lead to remote code execution"
+  remediation: "Use safe deserialization methods (e.g., yaml.safe_load). Never deserialize untrusted data"
+
+# ============================================================================
+# CATEGORY 15: SERVER-SIDE REQUEST FORGERY (SSRF)
+# ============================================================================
+
+- id: SSRF_GENERIC
+  category: data_exfiltration
+  severity: HIGH
+  patterns:
+    - "\\b(fetch|axios|got|request|urllib|requests)\\s*[.\\(]\\s*[^)]*(?:req\\.|params\\.|query\\.|body\\.|user|input)"
+    - "\\b(url|uri|href|endpoint|target|host|server)\\s*=\\s*(?:req\\.|params\\.|query\\.|body\\.|request\\.)"
+    - "\\b(http\\.get|https\\.get|http\\.request|https\\.request)\\s*\\([^)]*(?:req\\.|params\\.|query\\.|body\\.)"
+    - "\\b(new\\s+URL|url\\.parse|urllib\\.parse)\\s*\\([^)]*(?:req\\.|params\\.|query\\.|body\\.)"
+    - "\\bfetch\\s*\\(\\s*(?:req\\.|params\\.|query\\.|body\\.)"
+  file_types: [any]
+  description: "Server-side request forgery allowing attackers to make requests to internal services"
+  remediation: "Validate and whitelist allowed URLs. Block requests to private/internal IP ranges"
+
+# ============================================================================
+# CATEGORY 16: CRYPTOMINING & RESOURCE HIJACKING
+# ============================================================================
+
+- id: CRYPTOMINING_DETECTION
+  category: resource_abuse
+  severity: CRITICAL
+  patterns:
+    - "\\b(coinhive|cryptonight|monero|stratum\\+tcp|xmrig|minergate|coinpot|hashrate|nonce.*difficulty)\\b"
+    - "\\bWebAssembly\\.(instantiate|compile)\\s*\\([^)]*(?:wasm|mining|hash)"
+    - "\\b(crypto\\.subtle\\.digest|CryptoJS\\.SHA256)\\s*\\([^)]*\\b(while|for)\\b"
+    - "\\bstratum\\+(?:tcp|ssl):\\/\\/"
+    - "\\b(pool|mine|miner|mining)\\.(supportxmr|nanopool|hashvault|f2pool)\\b"
+  file_types: [any]
+  description: "Cryptocurrency mining code detected, may hijack system resources"
+  remediation: "Remove cryptocurrency mining code. Mining in extensions is considered malicious"
+
+# ============================================================================
+# CATEGORY 17: UNSAFE REGEX (ReDoS)
+# ============================================================================
+
+- id: REDOS_PATTERN
+  category: resource_abuse
+  severity: MEDIUM
+  patterns:
+    - "\\(\\.[*+]\\)\\{[2-9]\\d*,?\\d*\\}"
+    - "\\(\\.[*+]\\)\\+\\.[*+]\\+"
+    - "\\([^)]*\\|[^)]*\\)\\+\\s*\\$"
+    - "\\(\\[^[^\\]]*\\]\\+\\)\\+\\$"
+    - "\\((?:\\.\\*|\\[^[^\\]]*\\]\\*|\\w+\\*)\\)\\{\\d+,\\}"
+    - "new\\s+RegExp\\s*\\([^)]*(?:req\\.|params\\.|query\\.|body\\.|user|input)"
+  file_types: [any]
+  description: "Regular expression vulnerable to catastrophic backtracking (ReDoS)"
+  remediation: "Simplify regex patterns. Avoid nested quantifiers. Consider using RE2 or safe-regex libraries"
+
+# ============================================================================
+# CATEGORY 18: TIMING ATTACKS & SIDE CHANNELS
+# ============================================================================
+
+- id: TIMING_ATTACK
+  category: hardcoded_secrets
+  severity: MEDIUM
+  patterns:
+    - "\\b(password|secret|token|key|hash|digest)\\b[^\\n]{0,30}(===?|!==?|==|!=|strcmp|equals)\\s"
+    - "\\bif\\s*\\([^)]*(?:password|secret|token|api_key|hash)\\s*(?:===?|!==?|==|!=)\\s*[^)]*\\)"
+  exclude_patterns:
+    - "crypto\\.timingSafeEqual"
+    - "hmac\\.compare_digest"
+    - "constant_time_compare"
+    - "secure_compare"
+    - "timing.*safe"
+  file_types: [javascript, typescript, python]
+  description: "String comparison of secrets vulnerable to timing attacks"
+  remediation: "Use constant-time comparison functions (e.g., crypto.timingSafeEqual, hmac.compare_digest)"
+
+# ============================================================================
+# CATEGORY 19: INSECURE NETWORK CONFIGURATION
+# ============================================================================
+
+- id: INSECURE_TLS_CONFIG
+  category: data_exfiltration
+  severity: HIGH
+  patterns:
+    - "\\bNODE_TLS_REJECT_UNAUTHORIZED\\s*=\\s*['\"]?0['\"]?"
+    - "\\brejectUnauthorized\\s*:\\s*false\\b"
+    - "\\bverify\\s*=\\s*False\\b"
+    - "\\bssl\\._create_unverified_context\\b"
+    - "\\bInsecureRequestWarning\\b"
+    - "\\b(disable|skip|ignore).*ssl.*verif"
+    - "\\ballow_redirects\\s*=\\s*True\\b[^\\n]*\\b(?:verify\\s*=\\s*False)\\b"
+  file_types: [any]
+  description: "TLS/SSL certificate verification disabled, enabling man-in-the-middle attacks"
+  remediation: "Always verify TLS certificates. Never set rejectUnauthorized to false in production"
+
+- id: INSECURE_CORS
+  category: data_exfiltration
+  severity: MEDIUM
+  patterns:
+    - "\\bAccess-Control-Allow-Origin\\s*[\"']?\\s*\\*"
+    - "\\bcors\\s*\\(\\s*\\{[^}]*origin\\s*:\\s*(?:true|['\"]\\*['\"])"
+    - "\\bAccess-Control-Allow-Credentials\\s*[\"']?\\s*true[^\\n]*\\bAccess-Control-Allow-Origin\\s*[\"']?\\s*\\*"
+  file_types: [any]
+  description: "Overly permissive CORS configuration allowing cross-origin access"
+  remediation: "Restrict CORS origins to specific trusted domains instead of using wildcards"
+
+# ============================================================================
+# CATEGORY 20: EXTENSION-SPECIFIC THREATS
+# ============================================================================
+
+- id: EXTENSION_TELEMETRY_ABUSE
+  category: data_exfiltration
+  severity: MEDIUM
+  patterns:
+    - "\\b(telemetry|analytics|tracking|metrics)\\b[^\\n]{0,80}\\b(keystrokes?|clipboard|selection|editor\\.document|activeTextEditor|workspace\\.textDocuments)\\b"
+    - "\\b(keypress|keydown|keyup|onDidChangeTextDocument|onDidChangeTextEditorSelection)\\b[^\\n]{0,100}\\b(send|post|fetch|http|request|socket)\\b"
+    - "\\b(clipboard\\.readText|env\\.clipboard)\\b[^\\n]{0,100}\\b(send|post|fetch|http|request)\\b"
+  file_types: [any]
+  description: "Extension may exfiltrate user keystrokes, clipboard data, or document contents"
+  remediation: "Extensions should not transmit editor content, keystrokes, or clipboard data"
+
+- id: EXTENSION_PERMISSION_OVERREACH
+  category: unauthorized_tool_use
+  severity: MEDIUM
+  patterns:
+    - "\\bvscode\\.workspace\\.fs\\.(?:readFile|writeFile|delete|rename)\\b[^\\n]*\\b(?:homedir|HOME|USERPROFILE|process\\.env)\\b"
+    - "\\bvscode\\.env\\.openExternal\\b[^\\n]*\\b(?:user|input|req|param)\\b"
+    - "\\b(vscode\\.commands\\.executeCommand)\\s*\\([^)]*(?:req\\.|params\\.|query\\.|body\\.|user)"
+  file_types: [javascript, typescript]
+  description: "Extension accesses resources beyond its stated scope"
+  remediation: "Limit extension file access to workspace directories only. Request minimum permissions"
