@@ -292,13 +292,13 @@ function printHelp() {
   const help = `Security Scanner - Skills, Extensions, and MCP Security Scanner
 
 Usage:
-  skill-scanner scan <path> [options]
-  skill-scanner scan-all <path> [options]
-  skill-scanner watch <path> [options]
-  skill-scanner mcp remote <serverUrl> [options]
-  skill-scanner mcp static [options]
-  skill-scanner mcp config <configPath> [options]
-  skill-scanner mcp known-configs [options]
+  securityscanner scan <path> [options]
+  securityscanner scan-all <path> [options]
+  securityscanner watch <path> [options]
+  securityscanner mcp remote <serverUrl> [options]
+  securityscanner mcp static [options]
+  securityscanner mcp config <configPath> [options]
+  securityscanner mcp known-configs [options]
 
 Options:
   --json            Output JSON report (alias for --format json)
@@ -348,26 +348,26 @@ MCP Options (mcp config / known-configs):
   --connect         Extract serverUrl entries and run remote scans (default: scan config file text only)
 
 Examples:
-  skill-scanner scan /path/to/skill
-  skill-scanner scan /path/to/skill --use-behavioral
-  skill-scanner scan /path/to/skill --enable-meta
-  skill-scanner scan /path/to/skill --report-dir ./reports
-  skill-scanner scan /path/to/skill --report-dir ./reports --report-format html,json,csv
-  skill-scanner scan-all /path/to/skills --recursive --use-behavioral
-  skill-scanner scan-all ./skills --fail-on-findings --format sarif --output results.sarif
-  skill-scanner scan . --extensions
-  skill-scanner scan . --report-dir /tmp/security-reports --report-format html
-  skill-scanner scan ./my-project --save --report-dir ./scans --report-format html,json
-  skill-scanner mcp remote https://your-server/mcp --format json
-  skill-scanner mcp static --tools ./tools.json --format table
-  skill-scanner mcp known-configs
-  skill-scanner mcp known-configs --connect --format json
-  skill-scanner history                    List recent scans
-  skill-scanner history --json             Output scan history as JSON
-  skill-scanner history <scan-id>          Show details of a specific scan
-  skill-scanner history --stats            Show scan statistics
-  skill-scanner history --delete <id>      Delete a specific scan
-  skill-scanner history --clear            Delete all scan history
+  securityscanner scan /path/to/skill
+  securityscanner scan /path/to/skill --use-behavioral
+  securityscanner scan /path/to/skill --enable-meta
+  securityscanner scan /path/to/skill --report-dir ./reports
+  securityscanner scan /path/to/skill --report-dir ./reports --report-format html,json,csv
+  securityscanner scan-all /path/to/skills --recursive --use-behavioral
+  securityscanner scan-all ./skills --fail-on-findings --format sarif --output results.sarif
+  securityscanner scan . --extensions
+  securityscanner scan . --report-dir /tmp/security-reports --report-format html
+  securityscanner scan ./my-project --save --report-dir ./scans --report-format html,json
+  securityscanner mcp remote https://your-server/mcp --format json
+  securityscanner mcp static --tools ./tools.json --format table
+  securityscanner mcp known-configs
+  securityscanner mcp known-configs --connect --format json
+  securityscanner history                    List recent scans
+  securityscanner history --json             Output scan history as JSON
+  securityscanner history <scan-id>          Show details of a specific scan
+  securityscanner history --stats            Show scan statistics
+  securityscanner history --delete <id>      Delete a specific scan
+  securityscanner history --clear            Delete all scan history
 `;
 
   console.log(help);
