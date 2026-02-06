@@ -1,10 +1,13 @@
 # Security Scanner
 
-Security Scanner (`skill-scanner`) is a Bun + TypeScript CLI that scans agent skill repositories and browser extension folders for unsafe or malicious behavior. It discovers `SKILL.md` directories across common agent ecosystems, can optionally scan installed browser extensions, applies signature-based rules, and runs an additional heuristic layer for supply-chain and secret-detection risks. It is designed for CI usage and fast local audits.
+Security Scanner (`skill-scanner`) is a Bun + TypeScript CLI that scans agent skill repositories, browser extension folders, and MCP (Model Context Protocol) servers/static exports for unsafe or malicious behavior. It discovers `SKILL.md` directories across common agent ecosystems, can optionally scan installed browser extensions, applies signature-based rules, and runs an additional heuristic layer for supply-chain and secret-detection risks. It is designed for CI usage and fast local audits.
 
 ## Features
 - Recursive skill discovery across multiple agent ecosystems
 - Optional scanning of installed browser extensions (Chromium-based browsers like Chrome/Edge/Brave/Vivaldi/Opera/Arc where present; Firefox unpacked extensions only)
+- MCP scanning:
+  - Remote MCP server scanning over JSON-RPC HTTP (tools/prompts/resources/instructions)
+  - Offline/static scanning from MCP JSON exports (`--tools`, `--prompts`, `--resources`, `--instructions`)
 - Signature-based detection for prompt injection, command injection, data exfiltration, secrets, obfuscation, privilege abuse, and resource abuse
 - Additional security layer with heuristics for high-entropy secrets and risky install scripts
 - Human-readable table output, JSON output, and failure thresholds
@@ -24,6 +27,14 @@ Security Scanner (`skill-scanner`) is a Bun + TypeScript CLI that scans agent sk
 ./skill-scanner scan-all ./skills --fail-on-findings --format sarif --output results.sarif
 ./skill-scanner scan . --extensions
 ./skill-scanner watch .
+
+# MCP remote scan (HTTP JSON-RPC)
+./skill-scanner mcp remote https://your-mcp-server/mcp --format json
+./skill-scanner mcp remote https://your-mcp-server/mcp --scan tools,instructions --tui
+./skill-scanner mcp remote https://your-mcp-server/mcp --bearer-token "$TOKEN" --header "X-API-Key: abc123"
+
+# MCP static scan (offline/CI)
+./skill-scanner mcp static --tools tools.json --prompts prompts.json --format table
 ```
 
 ## Build

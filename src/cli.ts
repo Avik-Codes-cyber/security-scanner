@@ -6,6 +6,7 @@ import { discoverSkills, getSearchRoots } from "./scanner/discover.ts";
 import { discoverBrowserExtensions, discoverBrowserExtensionWatchRoots } from "./scanner/browser-extensions.ts";
 import { loadRulesFromFile, loadRulesFromText } from "./scanner/rule-engine.ts";
 import { scanFile } from "./scanner/scan-file.ts";
+import { scanContentItem } from "./scanner/scan-content.ts";
 import type { Finding, Severity, ScanOptions, Target } from "./scanner/types.ts";
 import { applyMetaAnalyzer, formatSummary, renderTable, shouldFail, summarizeFindings, toJson } from "./scanner/report.ts";
 import { applyFixes } from "./scanner/fix.ts";
@@ -13,6 +14,9 @@ import { toSarif } from "./scanner/sarif.ts";
 import { createTui } from "./utils/tui.ts";
 import { dirExists, isInSkippedDir, sanitizePath } from "./utils/fs.ts";
 import { signaturesYaml } from "./rules/signatures.ts";
+import { collectFromServer } from "./scanner/mcp/collect.ts";
+import { loadStaticInputs } from "./scanner/mcp/static.ts";
+import { staticLabelFromFiles, virtualizeRemote, virtualizeStatic } from "./scanner/mcp/virtualize.ts";
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
 const SCAN_EXTENSIONS = new Set([".py", ".ts", ".js", ".mjs", ".cjs", ".sh", ".bash"]);
@@ -28,10 +32,42 @@ function parseSeverity(value?: string): Severity | undefined {
   return undefined;
 }
 
+type McpSubcommand = "remote" | "static";
+
+type McpCliOptions = {
+  subcommand?: McpSubcommand;
+  serverUrl?: string;
+  bearerToken?: string;
+  headers: string[];
+  scan?: string;
+  readResources?: boolean;
+  mimeTypes?: string;
+  maxResourceBytes?: number;
+  toolsFile?: string;
+  promptsFile?: string;
+  resourcesFile?: string;
+  instructionsFile?: string;
+};
+
 function parseArgs(argv: string[]) {
   const args = [...argv];
   const command = args[0] && !args[0].startsWith("-") ? args.shift()! : "scan";
-  const targetPath = args[0] && !args[0].startsWith("-") ? args.shift()! : ".";
+  const mcp: McpCliOptions = { headers: [] };
+
+  let targetPath = ".";
+
+  if (command === "mcp") {
+    const sub = args[0] && !args[0].startsWith("-") ? args.shift()! : "";
+    if (sub === "remote" || sub === "static") {
+      mcp.subcommand = sub;
+    }
+    if (mcp.subcommand === "remote") {
+      const url = args[0] && !args[0].startsWith("-") ? args.shift()! : "";
+      if (url) mcp.serverUrl = url;
+    }
+  } else {
+    targetPath = args[0] && !args[0].startsWith("-") ? args.shift()! : ".";
+  }
 
   const options: ScanOptions & { watch?: boolean } = {
     json: false,
@@ -67,6 +103,72 @@ function parseArgs(argv: string[]) {
     else if (arg === "--use-behavioral") options.useBehavioral = true;
     else if (arg === "--no-behavioral") options.useBehavioral = false;
     else if (arg === "--enable-meta") options.enableMeta = true;
+    else if (arg === "--bearer-token") {
+      const value = args.shift();
+      if (value) mcp.bearerToken = value;
+    } else if (arg.startsWith("--bearer-token=")) {
+      const value = arg.split("=")[1];
+      if (value) mcp.bearerToken = value;
+    }
+    else if (arg === "--header") {
+      const value = args.shift();
+      if (value) mcp.headers.push(value);
+    } else if (arg.startsWith("--header=")) {
+      const value = arg.split("=")[1];
+      if (value) mcp.headers.push(value);
+    }
+    else if (arg === "--scan") {
+      const value = args.shift();
+      if (value) mcp.scan = value;
+    } else if (arg.startsWith("--scan=")) {
+      const value = arg.split("=")[1];
+      if (value) mcp.scan = value;
+    }
+    else if (arg === "--read-resources") {
+      mcp.readResources = true;
+    }
+    else if (arg === "--mime-types") {
+      const value = args.shift();
+      if (value) mcp.mimeTypes = value;
+    } else if (arg.startsWith("--mime-types=")) {
+      const value = arg.split("=")[1];
+      if (value) mcp.mimeTypes = value;
+    }
+    else if (arg === "--max-resource-bytes") {
+      const value = args.shift();
+      if (value) mcp.maxResourceBytes = Number(value);
+    } else if (arg.startsWith("--max-resource-bytes=")) {
+      const value = arg.split("=")[1];
+      if (value) mcp.maxResourceBytes = Number(value);
+    }
+    else if (arg === "--tools") {
+      const value = args.shift();
+      if (value) mcp.toolsFile = value;
+    } else if (arg.startsWith("--tools=")) {
+      const value = arg.split("=")[1];
+      if (value) mcp.toolsFile = value;
+    }
+    else if (arg === "--prompts") {
+      const value = args.shift();
+      if (value) mcp.promptsFile = value;
+    } else if (arg.startsWith("--prompts=")) {
+      const value = arg.split("=")[1];
+      if (value) mcp.promptsFile = value;
+    }
+    else if (arg === "--resources") {
+      const value = args.shift();
+      if (value) mcp.resourcesFile = value;
+    } else if (arg.startsWith("--resources=")) {
+      const value = arg.split("=")[1];
+      if (value) mcp.resourcesFile = value;
+    }
+    else if (arg === "--instructions") {
+      const value = args.shift();
+      if (value) mcp.instructionsFile = value;
+    } else if (arg.startsWith("--instructions=")) {
+      const value = arg.split("=")[1];
+      if (value) mcp.instructionsFile = value;
+    }
     else if (arg === "--format") {
       const value = args.shift();
       if (value === "json" || value === "table" || value === "sarif") {
@@ -110,16 +212,18 @@ function parseArgs(argv: string[]) {
     }
   }
 
-  return { command, targetPath, options, systemFlagSet };
+  return { command, targetPath, options, systemFlagSet, mcp };
 }
 
 function printHelp() {
-  const help = `Security Scanner - Skills and Extension Security Scanner
+  const help = `Security Scanner - Skills, Extensions, and MCP Security Scanner
 
 Usage:
   skill-scanner scan <path> [options]
   skill-scanner scan-all <path> [options]
   skill-scanner watch <path> [options]
+  skill-scanner mcp remote <serverUrl> [options]
+  skill-scanner mcp static [options]
 
 Options:
   --json            Output JSON report (alias for --format json)
@@ -142,6 +246,20 @@ Options:
   --no-behavioral   Disable behavioral heuristic engine
   --enable-meta     Enable meta-analyzer (false-positive filtering)
 
+MCP Options (mcp remote):
+  --bearer-token <t>   Bearer token (Authorization: Bearer <t>)
+  --header "K: V"      Custom header (repeatable)
+  --scan <csv>         tools,prompts,resources,instructions (default: tools,instructions,prompts)
+  --read-resources     Read and scan resource contents (default: off)
+  --mime-types <csv>   Allowed resource mime types (default: text/plain,text/markdown,text/html,application/json)
+  --max-resource-bytes <n>  Max bytes to read per resource (default: 1048576)
+
+MCP Options (mcp static):
+  --tools <file>         Tools JSON file (array or {tools:[...]})
+  --prompts <file>       Prompts JSON file (array or {prompts:[...]})
+  --resources <file>     Resources JSON file (array or {resources:[...]})
+  --instructions <file>  Instructions JSON file (string or {instructions:\"...\"})
+
 Examples:
   skill-scanner scan /path/to/skill
   skill-scanner scan /path/to/skill --use-behavioral
@@ -149,6 +267,8 @@ Examples:
   skill-scanner scan-all /path/to/skills --recursive --use-behavioral
   skill-scanner scan-all ./skills --fail-on-findings --format sarif --output results.sarif
   skill-scanner scan . --extensions
+  skill-scanner mcp remote https://your-server/mcp --format json
+  skill-scanner mcp static --tools ./tools.json --format table
 `;
 
   console.log(help);
@@ -185,6 +305,26 @@ async function collectFiles(scanRoots: string[], options?: { includeDocs?: boole
   return Array.from(fileSet).sort();
 }
 
+async function loadCompiledRules(basePath: string) {
+  const rulesPathFromImport = fileURLToPath(new URL("./rules/signatures.yaml", import.meta.url));
+  const rulesCandidates = [
+    process.env.SKILL_SCANNER_RULES ?? process.env.SKILLGUARD_RULES,
+    join(basePath, "rules", "signatures.yaml"),
+    join(dirname(process.execPath), "rules", "signatures.yaml"),
+    rulesPathFromImport,
+  ].filter(Boolean) as string[];
+
+  for (const candidate of rulesCandidates) {
+    try {
+      return await loadRulesFromFile(candidate);
+    } catch {
+      // continue
+    }
+  }
+
+  return loadRulesFromText(signaturesYaml);
+}
+
 async function runScan(targetPath: string, options: ScanOptions) {
   if (options.fix) {
     console.warn("Note: --fix will comment out matched lines in supported file types.");
@@ -194,27 +334,7 @@ async function runScan(targetPath: string, options: ScanOptions) {
   }
   const start = Date.now();
   const basePath = sanitizePath(resolve(targetPath));
-  const rulesPathFromImport = fileURLToPath(new URL("./rules/signatures.yaml", import.meta.url));
-  const rulesCandidates = [
-    process.env.SKILL_SCANNER_RULES ?? process.env.SKILLGUARD_RULES,
-    join(basePath, "rules", "signatures.yaml"),
-    join(dirname(process.execPath), "rules", "signatures.yaml"),
-    rulesPathFromImport,
-  ].filter(Boolean) as string[];
-
-  let rules: ReturnType<typeof loadRulesFromText> | null = null;
-  for (const candidate of rulesCandidates) {
-    try {
-      rules = await loadRulesFromFile(candidate);
-      break;
-    } catch {
-      // continue to next candidate
-    }
-  }
-
-  if (!rules) {
-    rules = loadRulesFromText(signaturesYaml);
-  }
+  const rules = await loadCompiledRules(basePath);
 
   const skills = await discoverSkills(basePath, {
     includeSystem: options.includeSystem,
@@ -358,6 +478,255 @@ async function runScan(targetPath: string, options: ScanOptions) {
   return result;
 }
 
+function parseHeaderList(values: string[]): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const v of values) {
+    const idx = v.indexOf(":");
+    if (idx <= 0) continue;
+    const key = v.slice(0, idx).trim();
+    const value = v.slice(idx + 1).trim();
+    if (!key) continue;
+    headers[key] = value;
+  }
+  return headers;
+}
+
+function parseMcpScanList(value?: string): Array<"tools" | "prompts" | "resources" | "instructions"> {
+  const allowed = new Set(["tools", "prompts", "resources", "instructions"]);
+  if (!value) return ["tools", "instructions", "prompts"];
+  const parts = value
+    .split(",")
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((p) => allowed.has(p));
+  const uniq = Array.from(new Set(parts));
+  return (uniq.length ? uniq : ["tools", "instructions", "prompts"]) as Array<
+    "tools" | "prompts" | "resources" | "instructions"
+  >;
+}
+
+async function runMcpRemoteScan(serverUrl: string, options: ScanOptions, mcp: McpCliOptions) {
+  if (!serverUrl) {
+    console.error("Missing MCP server URL. Usage: skill-scanner mcp remote <serverUrl>");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (options.fix) {
+    console.warn("Note: --fix is not supported for MCP targets (no local files to modify). Ignoring --fix.");
+    options.fix = false;
+  }
+
+  const start = Date.now();
+  const basePath = sanitizePath(resolve("."));
+  const rules = await loadCompiledRules(basePath);
+
+  const headers = parseHeaderList(mcp.headers ?? []);
+  if (mcp.bearerToken) {
+    headers["Authorization"] = `Bearer ${mcp.bearerToken}`;
+  }
+
+  const scanList = parseMcpScanList(mcp.scan);
+  const allowedMimeTypes = (mcp.mimeTypes ?? "text/plain,text/markdown,text/html,application/json")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+
+  const maxResourceBytes =
+    typeof mcp.maxResourceBytes === "number" && Number.isFinite(mcp.maxResourceBytes)
+      ? Math.max(1, Math.floor(mcp.maxResourceBytes))
+      : 1_048_576;
+
+  const collected = await collectFromServer(serverUrl, {
+    headers,
+    scan: scanList,
+    readResources: Boolean(mcp.readResources),
+    allowedMimeTypes,
+    maxResourceBytes,
+  });
+
+  const { host, files, scannedObjects } = virtualizeRemote(serverUrl, collected, { readResources: Boolean(mcp.readResources) });
+
+  const totalFiles = files.length;
+  const outputFormat = options.format ?? (options.json ? "json" : "table");
+  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
+  const tui = createTui(tuiEnabled);
+  tui.start(totalFiles, 1);
+  tui.beginTarget(1, 1, host, totalFiles);
+
+  const targetFindings: Finding[] = [];
+  for (const item of files) {
+    try {
+      const fileFindings = scanContentItem(item, rules, options);
+      if (fileFindings.length) {
+        targetFindings.push(...fileFindings);
+        tui.onFindings(fileFindings);
+      }
+    } finally {
+      tui.onFile(item.virtualPath);
+    }
+  }
+
+  const filteredTargetFindings = options.enableMeta ? applyMetaAnalyzer(targetFindings) : targetFindings;
+  if (options.enableMeta) tui.setCurrentFindings(filteredTargetFindings);
+
+  tui.completeTarget(
+    { name: host, files: totalFiles, findings: filteredTargetFindings.length, counts: summarizeFindings(filteredTargetFindings) },
+    filteredTargetFindings
+  );
+
+  const elapsedMs = Date.now() - start;
+  tui.finish();
+
+  const result = {
+    targets: [
+      {
+        kind: "mcp",
+        name: host,
+        path: serverUrl,
+        meta: { serverUrl, transport: "http", scannedObjects },
+      },
+    ] as Target[],
+    findings: filteredTargetFindings,
+    scannedFiles: totalFiles,
+    elapsedMs,
+  };
+
+  let outputText: string | null = null;
+  if (outputFormat === "json") outputText = toJson(result);
+  else if (outputFormat === "sarif") outputText = toSarif(result);
+
+  if (options.output && outputText !== null) {
+    await Bun.write(options.output, outputText);
+  }
+
+  if (outputFormat === "table") {
+    if (!tuiEnabled) {
+      console.log(formatSummary(result));
+      console.log("");
+      console.log(renderTable(result.findings));
+    } else {
+      console.log(formatSummary(result));
+    }
+  } else if (!options.output && outputText !== null) {
+    console.log(outputText);
+  } else {
+    console.log(formatSummary(result));
+  }
+
+  if (shouldFail(result.findings, options.failOn)) {
+    process.exitCode = 2;
+  }
+
+  return result;
+}
+
+async function runMcpStaticScan(options: ScanOptions, mcp: McpCliOptions) {
+  if (options.fix) {
+    console.warn("Note: --fix is not supported for MCP static targets (no local code lines to modify). Ignoring --fix.");
+    options.fix = false;
+  }
+
+  const start = Date.now();
+  const basePath = sanitizePath(resolve("."));
+  const rules = await loadCompiledRules(basePath);
+
+  const inputs = await loadStaticInputs({
+    tools: mcp.toolsFile,
+    prompts: mcp.promptsFile,
+    resources: mcp.resourcesFile,
+    instructions: mcp.instructionsFile,
+  });
+
+  if (inputs.sourceFiles.length === 0) {
+    console.error("No MCP static inputs provided. Use --tools/--prompts/--resources/--instructions.");
+    process.exitCode = 1;
+    return;
+  }
+
+  const label = staticLabelFromFiles(inputs.sourceFiles);
+  const { host, files, scannedObjects } = virtualizeStatic({
+    label,
+    tools: inputs.tools,
+    prompts: inputs.prompts,
+    resources: inputs.resources,
+    initialize: inputs.initialize,
+  });
+
+  const totalFiles = files.length;
+  const outputFormat = options.format ?? (options.json ? "json" : "table");
+  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
+  const tui = createTui(tuiEnabled);
+  tui.start(totalFiles, 1);
+  tui.beginTarget(1, 1, host, totalFiles);
+
+  const targetFindings: Finding[] = [];
+  for (const item of files) {
+    try {
+      const fileFindings = scanContentItem(item, rules, options);
+      if (fileFindings.length) {
+        targetFindings.push(...fileFindings);
+        tui.onFindings(fileFindings);
+      }
+    } finally {
+      tui.onFile(item.virtualPath);
+    }
+  }
+
+  const filteredTargetFindings = options.enableMeta ? applyMetaAnalyzer(targetFindings) : targetFindings;
+  if (options.enableMeta) tui.setCurrentFindings(filteredTargetFindings);
+
+  tui.completeTarget(
+    { name: host, files: totalFiles, findings: filteredTargetFindings.length, counts: summarizeFindings(filteredTargetFindings) },
+    filteredTargetFindings
+  );
+
+  const elapsedMs = Date.now() - start;
+  tui.finish();
+
+  const result = {
+    targets: [
+      {
+        kind: "mcp",
+        name: host,
+        path: "static",
+        meta: { sourceFiles: inputs.sourceFiles, transport: "http", scannedObjects },
+      },
+    ] as Target[],
+    findings: filteredTargetFindings,
+    scannedFiles: totalFiles,
+    elapsedMs,
+  };
+
+  let outputText: string | null = null;
+  if (outputFormat === "json") outputText = toJson(result);
+  else if (outputFormat === "sarif") outputText = toSarif(result);
+
+  if (options.output && outputText !== null) {
+    await Bun.write(options.output, outputText);
+  }
+
+  if (outputFormat === "table") {
+    if (!tuiEnabled) {
+      console.log(formatSummary(result));
+      console.log("");
+      console.log(renderTable(result.findings));
+    } else {
+      console.log(formatSummary(result));
+    }
+  } else if (!options.output && outputText !== null) {
+    console.log(outputText);
+  } else {
+    console.log(formatSummary(result));
+  }
+
+  if (shouldFail(result.findings, options.failOn)) {
+    process.exitCode = 2;
+  }
+
+  return result;
+}
+
 async function watchAndScan(targetPath: string, options: ScanOptions) {
   let previousKeys = new Set<string>();
   const basePath = sanitizePath(resolve(targetPath));
@@ -431,7 +800,7 @@ async function watchAndScan(targetPath: string, options: ScanOptions) {
   }
 }
 
-const { command, targetPath, options, systemFlagSet } = parseArgs(process.argv.slice(2));
+const { command, targetPath, options, systemFlagSet, mcp } = parseArgs(process.argv.slice(2));
 
 // In watch mode, include system skill folders by default unless explicitly set.
 if (command === "watch" && !systemFlagSet && options.includeSystem === undefined) {
@@ -445,6 +814,15 @@ if (command === "scan") {
   await runScan(targetPath, options);
 } else if (command === "watch") {
   await watchAndScan(targetPath, options);
+} else if (command === "mcp") {
+  if (mcp.subcommand === "remote") {
+    await runMcpRemoteScan(mcp.serverUrl ?? "", options, mcp);
+  } else if (mcp.subcommand === "static") {
+    await runMcpStaticScan(options, mcp);
+  } else {
+    printHelp();
+    process.exitCode = 1;
+  }
 } else {
   printHelp();
   process.exitCode = 1;

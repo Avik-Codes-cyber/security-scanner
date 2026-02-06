@@ -1,6 +1,6 @@
 export type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
-export type TargetKind = "skill" | "extension" | "path";
+export type TargetKind = "skill" | "extension" | "mcp" | "path";
 
 export type Target = {
   kind: TargetKind;

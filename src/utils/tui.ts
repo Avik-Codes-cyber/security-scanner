@@ -194,7 +194,7 @@ export function createTui(enabled: boolean): ScanUi {
       return center(gradientChunks(lineText, LOGO_COLORS), innerWidth);
     });
 
-    const tagline = center(`${COLOR.dim}Security scanner for skills and browser extensions${COLOR.reset}`, innerWidth);
+    const tagline = center(`${COLOR.dim}Security scanner for skills, browser extensions, and MCP servers${COLOR.reset}`, innerWidth);
 
     const headerText = `${COLOR.bold}Security Scanner${COLOR.reset}`;
     const skillsText = `${COLOR.dim}Targets${COLOR.reset} ${totalTargets}`;

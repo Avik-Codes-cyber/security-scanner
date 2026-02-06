@@ -32,7 +32,15 @@ export function loadRulesFromText(content: string): CompiledRule[] {
     const compiled = patterns
       .map((pattern: string) => {
         try {
-          return new RegExp(pattern, "g");
+          // YAML rules often use PCRE-style inline case-insensitive flags like (?i),
+          // which JavaScript RegExp doesn't support. Normalize to JS flags.
+          let flags = "g";
+          let normalized = pattern;
+          if (normalized.includes("(?i)")) {
+            normalized = normalized.replace(/\(\?i\)/g, "");
+            flags = "gi";
+          }
+          return new RegExp(normalized, flags);
         } catch {
           return null;
         }
@@ -42,7 +50,13 @@ export function loadRulesFromText(content: string): CompiledRule[] {
     const excludeCompiled = excludePatterns
       .map((pattern: string) => {
         try {
-          return new RegExp(pattern, "g");
+          let flags = "g";
+          let normalized = pattern;
+          if (normalized.includes("(?i)")) {
+            normalized = normalized.replace(/\(\?i\)/g, "");
+            flags = "gi";
+          }
+          return new RegExp(normalized, flags);
         } catch {
           return null;
         }

@@ -144,6 +144,32 @@ export function toJson(result: ScanResult): string {
     {} as Record<string, number>
   );
 
+  const mcpTargets = result.targets.filter((t) => t.kind === "mcp");
+  const mcpObjects = { tools: 0, prompts: 0, resources: 0, instructions: 0 };
+  for (const t of mcpTargets) {
+    const so: any = t.meta && typeof t.meta === "object" ? (t.meta as any).scannedObjects : undefined;
+    if (!so || typeof so !== "object") continue;
+    for (const key of ["tools", "prompts", "resources", "instructions"] as const) {
+      const v = so[key];
+      if (typeof v === "number" && Number.isFinite(v)) {
+        (mcpObjects as any)[key] += v;
+      }
+    }
+  }
+
+  // Fallback: derive object counts from MCP virtual paths in findings (only counts objects that had findings).
+  if (mcpTargets.length > 0 && mcpObjects.tools + mcpObjects.prompts + mcpObjects.resources + mcpObjects.instructions === 0) {
+    for (const finding of result.findings) {
+      if (!finding.file.startsWith("mcp://")) continue;
+      const parts = finding.file.replace(/^mcp:\/\//, "").split("/");
+      const kind = parts[1];
+      if (kind === "tools") mcpObjects.tools += 1;
+      else if (kind === "prompts") mcpObjects.prompts += 1;
+      else if (kind === "resources") mcpObjects.resources += 1;
+      else if (kind === "instructions.md") mcpObjects.instructions += 1;
+    }
+  }
+
   const payload = {
     summary: {
       scannedFiles: result.scannedFiles,
@@ -158,6 +184,14 @@ export function toJson(result: ScanResult): string {
       categories: Array.from(categoryCounts.entries())
         .map(([category, count]) => ({ category, count }))
         .sort((a, b) => b.count - a.count),
+      ...(mcpTargets.length > 0
+        ? {
+            mcp: {
+              servers: mcpTargets.length,
+              objects: mcpObjects,
+            },
+          }
+        : {}),
     },
     targets: result.targets,
     findings: result.findings,
