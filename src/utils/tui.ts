@@ -40,12 +40,6 @@ const LOGO_COLORS = [
   "\x1b[38;5;33m",  // deep blue
   "\x1b[38;5;39m",  // blue
   "\x1b[38;5;45m",  // cyan
-  "\x1b[38;5;51m",  // bright cyan
-  "\x1b[38;5;82m",  // green
-  "\x1b[38;5;118m", // bright green
-  "\x1b[38;5;190m", // yellow
-  "\x1b[38;5;208m", // orange
-  "\x1b[38;5;201m", // magenta
 ];
 
 function gradientChunks(text: string, palette: string[]): string {
