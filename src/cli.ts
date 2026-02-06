@@ -17,6 +17,8 @@ import { signaturesYaml } from "./rules/signatures.ts";
 import { collectFromServer } from "./scanner/mcp/collect.ts";
 import { loadStaticInputs } from "./scanner/mcp/static.ts";
 import { staticLabelFromFiles, virtualizeRemote, virtualizeStatic } from "./scanner/mcp/virtualize.ts";
+import { discoverWellKnownMcpConfigPaths } from "./scanner/mcp/known-configs.ts";
+import { loadAndExtractMcpServers } from "./scanner/mcp/config.ts";
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
 const SCAN_EXTENSIONS = new Set([".py", ".ts", ".js", ".mjs", ".cjs", ".sh", ".bash"]);
@@ -32,17 +34,19 @@ function parseSeverity(value?: string): Severity | undefined {
   return undefined;
 }
 
-type McpSubcommand = "remote" | "static";
+type McpSubcommand = "remote" | "static" | "config" | "known-configs";
 
 type McpCliOptions = {
   subcommand?: McpSubcommand;
   serverUrl?: string;
+  configPath?: string;
   bearerToken?: string;
   headers: string[];
   scan?: string;
   readResources?: boolean;
   mimeTypes?: string;
   maxResourceBytes?: number;
+  connect?: boolean;
   toolsFile?: string;
   promptsFile?: string;
   resourcesFile?: string;
@@ -58,12 +62,16 @@ function parseArgs(argv: string[]) {
 
   if (command === "mcp") {
     const sub = args[0] && !args[0].startsWith("-") ? args.shift()! : "";
-    if (sub === "remote" || sub === "static") {
+    if (sub === "remote" || sub === "static" || sub === "config" || sub === "known-configs") {
       mcp.subcommand = sub;
     }
     if (mcp.subcommand === "remote") {
       const url = args[0] && !args[0].startsWith("-") ? args.shift()! : "";
       if (url) mcp.serverUrl = url;
+    }
+    if (mcp.subcommand === "config") {
+      const path = args[0] && !args[0].startsWith("-") ? args.shift()! : "";
+      if (path) mcp.configPath = path;
     }
   } else {
     targetPath = args[0] && !args[0].startsWith("-") ? args.shift()! : ".";
@@ -126,6 +134,9 @@ function parseArgs(argv: string[]) {
     }
     else if (arg === "--read-resources") {
       mcp.readResources = true;
+    }
+    else if (arg === "--connect") {
+      mcp.connect = true;
     }
     else if (arg === "--mime-types") {
       const value = args.shift();
@@ -224,6 +235,8 @@ Usage:
   skill-scanner watch <path> [options]
   skill-scanner mcp remote <serverUrl> [options]
   skill-scanner mcp static [options]
+  skill-scanner mcp config <configPath> [options]
+  skill-scanner mcp known-configs [options]
 
 Options:
   --json            Output JSON report (alias for --format json)
@@ -260,6 +273,9 @@ MCP Options (mcp static):
   --resources <file>     Resources JSON file (array or {resources:[...]})
   --instructions <file>  Instructions JSON file (string or {instructions:\"...\"})
 
+MCP Options (mcp config / known-configs):
+  --connect         Extract serverUrl entries and run remote scans (default: scan config file text only)
+
 Examples:
   skill-scanner scan /path/to/skill
   skill-scanner scan /path/to/skill --use-behavioral
@@ -269,6 +285,8 @@ Examples:
   skill-scanner scan . --extensions
   skill-scanner mcp remote https://your-server/mcp --format json
   skill-scanner mcp static --tools ./tools.json --format table
+  skill-scanner mcp known-configs
+  skill-scanner mcp known-configs --connect --format json
 `;
 
   console.log(help);
@@ -538,12 +556,20 @@ async function runMcpRemoteScan(serverUrl: string, options: ScanOptions, mcp: Mc
       : 1_048_576;
 
   const collected = await collectFromServer(serverUrl, {
-    headers,
-    scan: scanList,
-    readResources: Boolean(mcp.readResources),
-    allowedMimeTypes,
-    maxResourceBytes,
-  });
+      headers,
+      scan: scanList,
+      readResources: Boolean(mcp.readResources),
+      allowedMimeTypes,
+      maxResourceBytes,
+    }).catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`Failed to connect to MCP server: ${serverUrl}`);
+      console.error(msg);
+      process.exitCode = 1;
+      return null;
+    });
+
+  if (!collected) return;
 
   const { host, files, scannedObjects } = virtualizeRemote(serverUrl, collected, { readResources: Boolean(mcp.readResources) });
 
@@ -727,6 +753,306 @@ async function runMcpStaticScan(options: ScanOptions, mcp: McpCliOptions) {
   return result;
 }
 
+async function runMcpRemoteMultiScan(
+  servers: Array<{ name: string; url: string; sourceFile?: string }>,
+  options: ScanOptions,
+  mcp: McpCliOptions
+) {
+  if (servers.length === 0) {
+    console.error("No MCP servers found to scan.");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (options.fix) {
+    console.warn("Note: --fix is not supported for MCP remote targets (no local files to modify). Ignoring --fix.");
+    options.fix = false;
+  }
+
+  const start = Date.now();
+  const basePath = sanitizePath(resolve("."));
+  const rules = await loadCompiledRules(basePath);
+
+  const headers = parseHeaderList(mcp.headers ?? []);
+  if (mcp.bearerToken) headers["Authorization"] = `Bearer ${mcp.bearerToken}`;
+
+  const scanList = parseMcpScanList(mcp.scan);
+  const allowedMimeTypes = (mcp.mimeTypes ?? "text/plain,text/markdown,text/html,application/json")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const maxResourceBytes =
+    typeof mcp.maxResourceBytes === "number" && Number.isFinite(mcp.maxResourceBytes)
+      ? Math.max(1, Math.floor(mcp.maxResourceBytes))
+      : 1_048_576;
+
+  // Collect everything first so the TUI can show an accurate total file count.
+  const collectedPlans: Array<{
+    target: Target;
+    files: Array<{ virtualPath: string; fileType: any; content: string }>;
+    scannedObjects: any;
+  }> = [];
+
+  for (const server of servers) {
+    try {
+      const collected = await collectFromServer(server.url, {
+        headers,
+        scan: scanList,
+        readResources: Boolean(mcp.readResources),
+        allowedMimeTypes,
+        maxResourceBytes,
+      });
+      const v = virtualizeRemote(server.url, collected, { readResources: Boolean(mcp.readResources) });
+      collectedPlans.push({
+        target: {
+          kind: "mcp",
+          name: v.host,
+          path: server.url,
+          meta: { serverUrl: server.url, transport: "http", scannedObjects: v.scannedObjects, sourceFile: server.sourceFile, serverName: server.name },
+        },
+        files: v.files,
+        scannedObjects: v.scannedObjects,
+      });
+    } catch (e) {
+      // Treat a collection failure as a scan failure for that target, but continue.
+      collectedPlans.push({
+        target: {
+          kind: "mcp",
+          name: server.name,
+          path: server.url,
+          meta: { serverUrl: server.url, transport: "http", scannedObjects: { tools: 0, prompts: 0, resources: 0, instructions: 0 }, sourceFile: server.sourceFile, error: e instanceof Error ? e.message : String(e) },
+        },
+        files: [],
+        scannedObjects: { tools: 0, prompts: 0, resources: 0, instructions: 0 },
+      });
+    }
+  }
+
+  const totalFiles = collectedPlans.reduce((sum, p) => sum + p.files.length, 0);
+  const outputFormat = options.format ?? (options.json ? "json" : "table");
+  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
+  const tui = createTui(tuiEnabled);
+  tui.start(totalFiles, collectedPlans.length);
+
+  const allFindings: Finding[] = [];
+  for (let i = 0; i < collectedPlans.length; i++) {
+    const plan = collectedPlans[i]!;
+    tui.beginTarget(i + 1, collectedPlans.length, plan.target.name, plan.files.length);
+
+    const targetFindings: Finding[] = [];
+    for (const item of plan.files) {
+      try {
+        const fileFindings = scanContentItem(item, rules, options);
+        if (fileFindings.length) {
+          targetFindings.push(...fileFindings);
+          tui.onFindings(fileFindings);
+        }
+      } finally {
+        tui.onFile(item.virtualPath);
+      }
+    }
+
+    const filteredTargetFindings = options.enableMeta ? applyMetaAnalyzer(targetFindings) : targetFindings;
+    if (options.enableMeta) tui.setCurrentFindings(filteredTargetFindings);
+
+    allFindings.push(...filteredTargetFindings);
+    tui.completeTarget(
+      { name: plan.target.name, files: plan.files.length, findings: filteredTargetFindings.length, counts: summarizeFindings(filteredTargetFindings) },
+      filteredTargetFindings
+    );
+  }
+
+  const elapsedMs = Date.now() - start;
+  tui.finish();
+
+  const result = {
+    targets: collectedPlans.map((p) => p.target),
+    findings: allFindings,
+    scannedFiles: totalFiles,
+    elapsedMs,
+  };
+
+  let outputText: string | null = null;
+  if (outputFormat === "json") outputText = toJson(result);
+  else if (outputFormat === "sarif") outputText = toSarif(result);
+
+  if (options.output && outputText !== null) {
+    await Bun.write(options.output, outputText);
+  }
+
+  if (outputFormat === "table") {
+    if (!tuiEnabled) {
+      console.log(formatSummary(result));
+      console.log("");
+      console.log(renderTable(result.findings));
+    } else {
+      console.log(formatSummary(result));
+    }
+  } else if (!options.output && outputText !== null) {
+    console.log(outputText);
+  } else {
+    console.log(formatSummary(result));
+  }
+
+  if (shouldFail(result.findings, options.failOn)) {
+    process.exitCode = 2;
+  }
+
+  return result;
+}
+
+async function runMcpConfigScan(options: ScanOptions, mcp: McpCliOptions) {
+  if (!mcp.configPath) {
+    console.error("Missing config path. Usage: skill-scanner mcp config <configPath>");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (mcp.connect) {
+    const servers = await loadAndExtractMcpServers(mcp.configPath);
+    await runMcpRemoteMultiScan(
+      servers.map((s) => ({ name: s.name, url: s.serverUrl, sourceFile: s.sourceFile })),
+      options,
+      mcp
+    );
+    return;
+  }
+
+  if (options.fix) {
+    console.warn("Note: --fix is disabled for mcp config scans by default (to avoid editing user config files). Ignoring --fix.");
+    options.fix = false;
+  }
+
+  const start = Date.now();
+  const basePath = sanitizePath(resolve("."));
+  const rules = await loadCompiledRules(basePath);
+
+  const outputFormat = options.format ?? (options.json ? "json" : "table");
+  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
+  const tui = createTui(tuiEnabled);
+  tui.start(1, 1);
+  tui.beginTarget(1, 1, mcp.configPath, 1);
+
+  const fileFindings = await scanFile(mcp.configPath, rules, options).catch(() => []);
+  if (fileFindings.length) tui.onFindings(fileFindings);
+  tui.onFile(mcp.configPath);
+
+  const filtered = options.enableMeta ? applyMetaAnalyzer(fileFindings) : fileFindings;
+  tui.completeTarget({ name: mcp.configPath, files: 1, findings: filtered.length, counts: summarizeFindings(filtered) }, filtered);
+
+  const elapsedMs = Date.now() - start;
+  tui.finish();
+
+  const result = {
+    targets: [{ kind: "path", name: "mcp-config", path: mcp.configPath, meta: { mcpConfig: true } }] as Target[],
+    findings: filtered,
+    scannedFiles: 1,
+    elapsedMs,
+  };
+
+  let outputText: string | null = null;
+  if (outputFormat === "json") outputText = toJson(result);
+  else if (outputFormat === "sarif") outputText = toSarif(result);
+
+  if (options.output && outputText !== null) await Bun.write(options.output, outputText);
+
+  if (outputFormat === "table") {
+    if (!tuiEnabled) {
+      console.log(formatSummary(result));
+      console.log("");
+      console.log(renderTable(result.findings));
+    } else {
+      console.log(formatSummary(result));
+    }
+  } else if (!options.output && outputText !== null) {
+    console.log(outputText);
+  } else {
+    console.log(formatSummary(result));
+  }
+
+  if (shouldFail(result.findings, options.failOn)) process.exitCode = 2;
+  return result;
+}
+
+async function runMcpKnownConfigsScan(options: ScanOptions, mcp: McpCliOptions) {
+  const configPaths = await discoverWellKnownMcpConfigPaths();
+  if (configPaths.length === 0) {
+    console.log("No well-known MCP config files found on this machine.");
+    return;
+  }
+
+  if (mcp.connect) {
+    const servers: Array<{ name: string; url: string; sourceFile?: string }> = [];
+    for (const p of configPaths) {
+      const s = await loadAndExtractMcpServers(p);
+      for (const item of s) servers.push({ name: item.name, url: item.serverUrl, sourceFile: item.sourceFile });
+    }
+    await runMcpRemoteMultiScan(servers, options, mcp);
+    return;
+  }
+
+  if (options.fix) {
+    console.warn("Note: --fix is disabled for mcp known-configs scans by default (to avoid editing user config files). Ignoring --fix.");
+    options.fix = false;
+  }
+
+  const start = Date.now();
+  const basePath = sanitizePath(resolve("."));
+  const rules = await loadCompiledRules(basePath);
+
+  const outputFormat = options.format ?? (options.json ? "json" : "table");
+  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
+  const tui = createTui(tuiEnabled);
+  tui.start(configPaths.length, configPaths.length);
+
+  const findings: Finding[] = [];
+  for (let i = 0; i < configPaths.length; i++) {
+    const p = configPaths[i]!;
+    tui.beginTarget(i + 1, configPaths.length, p, 1);
+    const fileFindings = await scanFile(p, rules, options).catch(() => []);
+    const filtered = options.enableMeta ? applyMetaAnalyzer(fileFindings) : fileFindings;
+    if (filtered.length) {
+      findings.push(...filtered);
+      tui.onFindings(filtered);
+    }
+    tui.onFile(p);
+    tui.completeTarget({ name: p, files: 1, findings: filtered.length, counts: summarizeFindings(filtered) }, filtered);
+  }
+
+  const elapsedMs = Date.now() - start;
+  tui.finish();
+
+  const result = {
+    targets: configPaths.map((p) => ({ kind: "path", name: "mcp-config", path: p, meta: { mcpConfig: true } })) as Target[],
+    findings,
+    scannedFiles: configPaths.length,
+    elapsedMs,
+  };
+
+  let outputText: string | null = null;
+  if (outputFormat === "json") outputText = toJson(result);
+  else if (outputFormat === "sarif") outputText = toSarif(result);
+
+  if (options.output && outputText !== null) await Bun.write(options.output, outputText);
+
+  if (outputFormat === "table") {
+    if (!tuiEnabled) {
+      console.log(formatSummary(result));
+      console.log("");
+      console.log(renderTable(result.findings));
+    } else {
+      console.log(formatSummary(result));
+    }
+  } else if (!options.output && outputText !== null) {
+    console.log(outputText);
+  } else {
+    console.log(formatSummary(result));
+  }
+
+  if (shouldFail(result.findings, options.failOn)) process.exitCode = 2;
+  return result;
+}
+
 async function watchAndScan(targetPath: string, options: ScanOptions) {
   let previousKeys = new Set<string>();
   const basePath = sanitizePath(resolve(targetPath));
@@ -819,6 +1145,10 @@ if (command === "scan") {
     await runMcpRemoteScan(mcp.serverUrl ?? "", options, mcp);
   } else if (mcp.subcommand === "static") {
     await runMcpStaticScan(options, mcp);
+  } else if (mcp.subcommand === "config") {
+    await runMcpConfigScan(options, mcp);
+  } else if (mcp.subcommand === "known-configs") {
+    await runMcpKnownConfigsScan(options, mcp);
   } else {
     printHelp();
     process.exitCode = 1;

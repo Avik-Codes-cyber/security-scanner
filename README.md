@@ -35,6 +35,14 @@ Security Scanner (`skill-scanner`) is a Bun + TypeScript CLI that scans agent sk
 
 # MCP static scan (offline/CI)
 ./skill-scanner mcp static --tools tools.json --prompts prompts.json --format table
+
+# MCP configs on this machine (no network calls)
+./skill-scanner mcp known-configs --format table
+./skill-scanner mcp config ~/.cursor/mcp.json --format json
+
+# MCP configs with server connections
+./skill-scanner mcp known-configs --connect --format json
+./skill-scanner mcp config ~/.cursor/mcp.json --connect --format table
 ```
 
 ## Build

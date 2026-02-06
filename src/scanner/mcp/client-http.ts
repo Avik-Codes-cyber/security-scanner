@@ -41,15 +41,21 @@ export async function rpc<T = unknown>(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(options?.headers ?? {}),
-      },
-      body,
-      signal: controller.signal,
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(options?.headers ?? {}),
+        },
+        body,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new McpRpcError(`Network error calling MCP server at ${url}`, { data: { method, message: msg } });
+    }
 
     const text = await res.text();
     let json: any;
@@ -90,4 +96,3 @@ export function isMethodNotFound(err: unknown): boolean {
   if (!(err instanceof McpRpcError)) return false;
   return err.code === -32601;
 }
-
