@@ -6,6 +6,8 @@ import { analyzeCode } from "./code-analyzer";
 const MAX_HEURISTIC_FINDINGS = 10;
 
 function shannonEntropy(value: string): number {
+  if (value.length === 0) return 0;
+
   const freq: Record<string, number> = {};
   for (const ch of value) {
     freq[ch] = (freq[ch] ?? 0) + 1;
@@ -14,7 +16,9 @@ function shannonEntropy(value: string): number {
   let entropy = 0;
   for (const count of Object.values(freq)) {
     const p = count / len;
-    entropy -= p * Math.log2(p);
+    if (p > 0) {  // Avoid log2(0) which is -Infinity
+      entropy -= p * Math.log2(p);
+    }
   }
   return entropy;
 }

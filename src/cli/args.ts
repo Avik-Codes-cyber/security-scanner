@@ -3,6 +3,15 @@ import type { McpCliOptions, ParsedArgs } from "./types";
 import { printHelp } from "./help";
 
 /**
+ * Extract value from --flag=value, preserving multiple = signs
+ */
+function extractFlagValue(arg: string): string | undefined {
+  const eqIndex = arg.indexOf("=");
+  if (eqIndex === -1) return undefined;
+  return arg.substring(eqIndex + 1);
+}
+
+/**
  * Parse a severity string into a valid Severity type
  */
 export function parseSeverity(value?: string): Severity | undefined {
@@ -82,7 +91,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const value = args.shift();
       if (value) options.extraIDEExtensionDirs?.push(value);
     } else if (arg.startsWith("--ide-extensions-dir=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) options.extraIDEExtensionDirs?.push(value);
     }
     else if (arg === "--full-depth" || arg === "--recursive") options.fullDepth = true;
@@ -93,21 +102,21 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const value = args.shift();
       if (value) mcp.bearerToken = value;
     } else if (arg.startsWith("--bearer-token=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) mcp.bearerToken = value;
     }
     else if (arg === "--header") {
       const value = args.shift();
       if (value) mcp.headers.push(value);
     } else if (arg.startsWith("--header=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) mcp.headers.push(value);
     }
     else if (arg === "--scan") {
       const value = args.shift();
       if (value) mcp.scan = value;
     } else if (arg.startsWith("--scan=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) mcp.scan = value;
     }
     else if (arg === "--read-resources") {
@@ -120,42 +129,44 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const value = args.shift();
       if (value) mcp.mimeTypes = value;
     } else if (arg.startsWith("--mime-types=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) mcp.mimeTypes = value;
     }
     else if (arg === "--max-resource-bytes") {
       const value = args.shift();
-      if (value) mcp.maxResourceBytes = Number(value);
+      const num = Number(value);
+      if (value && !isNaN(num)) mcp.maxResourceBytes = num;
     } else if (arg.startsWith("--max-resource-bytes=")) {
-      const value = arg.split("=")[1];
-      if (value) mcp.maxResourceBytes = Number(value);
+      const value = extractFlagValue(arg);
+      const num = Number(value);
+      if (value && !isNaN(num)) mcp.maxResourceBytes = num;
     }
     else if (arg === "--tools") {
       const value = args.shift();
       if (value) mcp.toolsFile = value;
     } else if (arg.startsWith("--tools=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) mcp.toolsFile = value;
     }
     else if (arg === "--prompts") {
       const value = args.shift();
       if (value) mcp.promptsFile = value;
     } else if (arg.startsWith("--prompts=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) mcp.promptsFile = value;
     }
     else if (arg === "--resources") {
       const value = args.shift();
       if (value) mcp.resourcesFile = value;
     } else if (arg.startsWith("--resources=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) mcp.resourcesFile = value;
     }
     else if (arg === "--instructions") {
       const value = args.shift();
       if (value) mcp.instructionsFile = value;
     } else if (arg.startsWith("--instructions=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) mcp.instructionsFile = value;
     }
     else if (arg === "--format") {
@@ -164,7 +175,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         options.format = value;
       }
     } else if (arg.startsWith("--format=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value === "json" || value === "table" || value === "sarif") {
         options.format = value;
       }
@@ -172,7 +183,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const value = args.shift();
       if (value) options.output = value;
     } else if (arg.startsWith("--output=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) options.output = value;
     } else if (arg === "--fail-on-findings") {
       options.failOn = "LOW";
@@ -181,20 +192,20 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const value = args.shift();
       if (value) options.extraSkillDirs?.push(value);
     } else if (arg.startsWith("--skills-dir=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) options.extraSkillDirs?.push(value);
     }
     else if (arg === "--extensions-dir") {
       const value = args.shift();
       if (value) options.extraExtensionDirs?.push(value);
     } else if (arg.startsWith("--extensions-dir=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) options.extraExtensionDirs?.push(value);
     }
     else if (arg === "--fail-on") {
       options.failOn = parseSeverity(args.shift());
     } else if (arg.startsWith("--fail-on=")) {
-      options.failOn = parseSeverity(arg.split("=")[1]);
+      options.failOn = parseSeverity(extractFlagValue(arg));
     }
     else if (arg === "--save") {
       options.save = true;
@@ -203,28 +214,28 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const value = args.shift();
       if (value) options.tags?.push(value);
     } else if (arg.startsWith("--tag=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) options.tags?.push(value);
     }
     else if (arg === "--notes") {
       const value = args.shift();
       if (value) options.notes = value;
     } else if (arg.startsWith("--notes=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) options.notes = value;
     }
     else if (arg === "--compare-with") {
       const value = args.shift();
       if (value) options.compareWith = value;
     } else if (arg.startsWith("--compare-with=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) options.compareWith = value;
     }
     else if (arg === "--report-dir") {
       const value = args.shift();
       if (value) options.reportDir = value;
     } else if (arg.startsWith("--report-dir=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) options.reportDir = value;
     }
     else if (arg === "--report-format") {
@@ -234,7 +245,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         options.reportFormats = formats;
       }
     } else if (arg.startsWith("--report-format=")) {
-      const value = arg.split("=")[1];
+      const value = extractFlagValue(arg);
       if (value) {
         const formats = value.split(",").map((f) => f.trim().toLowerCase()) as ("json" | "html" | "csv")[];
         options.reportFormats = formats;
