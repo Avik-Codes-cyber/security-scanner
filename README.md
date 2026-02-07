@@ -154,6 +154,67 @@ bun run build
 
 The compiled binary is `./securityscanner`.
 
+## CI/CD & Releases
+
+### Automated Releases
+
+The project includes GitHub Actions workflows for automated building and releasing:
+
+**Release Workflow** (`.github/workflows/release.yml`)
+- Triggers on version tags (e.g., `v1.0.0`) or manual dispatch
+- Builds binaries for multiple platforms:
+  - Linux x64
+  - macOS x64 (Intel)
+  - macOS ARM64 (Apple Silicon)
+  - Windows x64
+- Creates GitHub releases with all binaries attached
+- Generates release notes automatically
+
+**CI Workflow** (`.github/workflows/ci.yml`)
+- Runs on every push to `main` or `develop` branches
+- Tests and builds on Linux, macOS, and Windows
+- Validates binary functionality
+
+### Creating a Release
+
+To create a new release:
+
+```bash
+# Tag the release
+git tag v1.0.0
+git push origin v1.0.0
+
+# Or create and push in one command
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+The GitHub Actions workflow will automatically:
+1. Build binaries for all platforms
+2. Create a GitHub release
+3. Upload all binaries to the release
+4. Generate release notes from commits
+
+### Manual Release Trigger
+
+You can also trigger a release manually from the GitHub Actions tab:
+1. Go to Actions → Build and Release
+2. Click "Run workflow"
+3. Select the branch
+4. Click "Run workflow"
+
+### Download Pre-built Binaries
+
+Once released, binaries are available at:
+```
+https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest
+```
+
+Download the appropriate binary for your platform:
+- `securityscanner-linux-x64` - Linux
+- `securityscanner-darwin-x64` - macOS Intel
+- `securityscanner-darwin-arm64` - macOS Apple Silicon
+- `securityscanner-windows-x64.exe` - Windows
+
 ## Report Generation
 
 The Security Scanner can generate comprehensive security reports in multiple formats, automatically saved to your specified directory with timestamped filenames.
