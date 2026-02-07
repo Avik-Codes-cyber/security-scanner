@@ -8,12 +8,12 @@ import { ScanCache } from "../../scanner/cache";
 import { IndexedRuleEngine } from "../../scanner/engine/indexed-rules";
 import { applyMetaAnalyzer, summarizeFindings } from "../../scanner/report";
 import { applyFixes } from "../../scanner/fix";
-import { createTui } from "../../utils/tui";
 import { sanitizePath } from "../../utils/fs";
 import { resetPathTracking } from "../../utils/path-safety";
 import { collectFiles, loadCompiledRules } from "../utils";
 import { handleScanOutput, generateReportFiles, saveScanResults, checkFailCondition } from "../output";
 import { config } from "../../config";
+import { setupScanTui } from "./scan-utils";
 
 /**
  * Internal scan function that accepts pre-discovered targets.
@@ -67,10 +67,7 @@ export async function runScanInternal(
   const totalFiles = scanPlans.reduce((sum, plan) => sum + plan.files.length, 0);
 
   // Setup TUI
-  const outputFormat = options.format ?? (options.json ? "json" : "table");
-  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
-  const tui = createTui(tuiEnabled, options.showConfidence);
-  tui.start(totalFiles, scanPlans.length);
+  const { tui, outputFormat, tuiEnabled } = setupScanTui(options, totalFiles, scanPlans.length, options.showConfidence);
 
   const findings: Finding[] = [];
   let totalFindingsReached = false;
