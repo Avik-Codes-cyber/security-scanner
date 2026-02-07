@@ -21,30 +21,65 @@ import { createTui } from "../../utils/tui";
 import { collectFiles, loadCompiledRules } from "../utils";
 import { handleScanOutput, generateReportFiles, saveScanResults, checkFailCondition } from "../output";
 import { config } from "../../config";
+import { LOGO_LINES } from "../../utils/tui/logo";
+import { LOGO_COLORS } from "../../utils/tui/colors";
+
+/**
+ * Display the logo
+ */
+function showLogo(): void {
+    console.log();
+    LOGO_LINES.forEach((line, i) => {
+        const color = LOGO_COLORS[i] || LOGO_COLORS[0];
+        console.log(`${color}${line}\x1b[0m`);
+    });
+    console.log();
+    console.log('\x1b[2mSecurity scanner for skills, browser extensions, Code Extensions and MCP servers\x1b[0m');
+    console.log();
+}
 
 /**
  * Discover all available targets for interactive selection
  */
 async function discoverAllTargets(
     basePath: string,
-    options: ScanOptions
+    options: ScanOptions & { skipCurrentPath?: boolean }
 ): Promise<Target[]> {
     const targets: Target[] = [];
 
-    // Discover skills
-    const skills = await discoverSkills(basePath, {
-        includeSystem: options.includeSystem,
-        extraSkillDirs: options.extraSkillDirs,
-        fullDepth: options.fullDepth,
-    });
+    // Discover skills from current path (unless skipped)
+    if (!options.skipCurrentPath) {
+        const skills = await discoverSkills(basePath, {
+            includeSystem: options.includeSystem,
+            extraSkillDirs: options.extraSkillDirs,
+            fullDepth: options.fullDepth,
+        });
 
-    targets.push(
-        ...skills.map((s) => ({
-            kind: "skill" as const,
-            name: s.name,
-            path: s.path,
-        }))
-    );
+        targets.push(
+            ...skills.map((s) => ({
+                kind: "skill" as const,
+                name: s.name,
+                path: s.path,
+            }))
+        );
+    } else if (options.includeSystem) {
+        // If skipping current path but including system, only scan system directories
+        const skills = await discoverSkills(basePath, {
+            includeSystem: true,
+            extraSkillDirs: options.extraSkillDirs,
+            fullDepth: false,
+        });
+
+        // Filter to only system directories (not from basePath)
+        const systemSkills = skills.filter(s => !s.path.startsWith(basePath));
+        targets.push(
+            ...systemSkills.map((s) => ({
+                kind: "skill" as const,
+                name: s.name,
+                path: s.path,
+            }))
+        );
+    }
 
     // Discover browser extensions if enabled
     if (options.includeExtensions) {
@@ -276,19 +311,23 @@ export async function runInteractiveScan(
     initialPath?: string,
     initialOptions: ScanOptions = {} as ScanOptions
 ): Promise<void> {
+    // Show logo at the start
+    showLogo();
     console.log("\n🔍 Interactive Security Scanner\n");
 
     try {
-        // Step 1: Get scan path
-        const scanPath = await promptScanPath(initialPath || ".");
-        console.log(`\n✓ Scan path: ${scanPath}\n`);
-
-        // Step 2: Get scan type (what to include)
+        // Step 1: Get scan type (what to include)
         const scanTypeOptions = await promptScanType();
         console.log("\n");
 
+        // Step 2: Determine scan path
+        let scanPath = initialPath || ".";
+        if (scanTypeOptions.customPath) {
+            scanPath = scanTypeOptions.customPath;
+        }
+
         // Merge options
-        const options: ScanOptions = {
+        const options: ScanOptions & { skipCurrentPath?: boolean; customPath?: string } = {
             ...initialOptions,
             ...scanTypeOptions,
         };

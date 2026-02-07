@@ -4,6 +4,7 @@
  * Provides reusable prompt components for interactive CLI
  */
 
+import cliTruncate from 'cli-truncate';
 import type { InteractiveChoice } from "./types";
 import {
     enableRawMode,
@@ -23,6 +24,48 @@ const COLORS = {
 };
 
 /**
+ * Get terminal width with fallback
+ */
+function getTerminalWidth(): number {
+    return process.stdout.columns || 80;
+}
+
+/**
+ * Strip ANSI color codes to get actual string length
+ */
+function stripAnsi(str: string): string {
+    return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+/**
+ * Truncate text to fit terminal width, accounting for ANSI codes
+ */
+function truncateForTerminal(text: string, maxWidth: number): string {
+    const stripped = stripAnsi(text);
+    if (stripped.length <= maxWidth) {
+        return text;
+    }
+
+    // Find ANSI codes in original text
+    const ansiCodes: string[] = [];
+    const ansiRegex = /\x1b\[[0-9;]*m/g;
+    let match;
+    while ((match = ansiRegex.exec(text)) !== null) {
+        ansiCodes.push(match[0]);
+    }
+
+    // Truncate the stripped version
+    const truncated = cliTruncate(stripped, maxWidth);
+
+    // If we have ANSI codes, try to preserve them
+    if (ansiCodes.length > 0) {
+        return ansiCodes[0] + truncated + COLORS.reset;
+    }
+
+    return truncated;
+}
+
+/**
  * Display a single-select prompt
  */
 export async function selectPrompt(
@@ -30,26 +73,44 @@ export async function selectPrompt(
     choices: InteractiveChoice[]
 ): Promise<string> {
     let selectedIndex = 0;
-    let rendered = false;
+    let lastLineCount = 0;
+    const termWidth = getTerminalWidth();
+
+    const clearPrevious = () => {
+        if (lastLineCount > 0) {
+            // Move up to start
+            process.stdout.write(`\x1b[${lastLineCount}A`);
+            // Clear each line
+            for (let i = 0; i < lastLineCount; i++) {
+                process.stdout.write('\x1b[2K\r'); // Clear line and return to start
+                if (i < lastLineCount - 1) {
+                    process.stdout.write('\x1b[1B'); // Move down one line
+                }
+            }
+            // Move back to start
+            process.stdout.write(`\x1b[${lastLineCount - 1}A\r`);
+        }
+    };
 
     const render = () => {
-        // Clear screen from cursor down
-        if (rendered) {
-            process.stdout.write('\x1b[J');
-            process.stdout.write(`\x1b[${choices.length + 1}A`);
-        }
+        clearPrevious();
 
-        process.stdout.write(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset}\n`);
+        const lines: string[] = [];
+        lines.push(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset}`);
 
         choices.forEach((choice, index) => {
             const isSelected = index === selectedIndex;
             const prefix = isSelected ? `${COLORS.cyan}❯${COLORS.reset}` : " ";
             const label = isSelected ? `${COLORS.cyan}${choice.label}${COLORS.reset}` : choice.label;
             const desc = choice.description ? ` ${COLORS.dim}(${choice.description})${COLORS.reset}` : "";
-            process.stdout.write(`${prefix} ${label}${desc}\n`);
+            const fullText = `${prefix} ${label}${desc}`;
+            const truncated = truncateForTerminal(fullText, termWidth - 2);
+            lines.push(truncated);
         });
 
-        rendered = true;
+        // Write all lines
+        process.stdout.write(lines.join('\n') + '\n');
+        lastLineCount = lines.length;
     };
 
     enableRawMode();
@@ -69,9 +130,9 @@ export async function selectPrompt(
                 render();
             } else if (key.name === "return") {
                 // Clear and show final result
-                process.stdout.write('\x1b[J');
-                process.stdout.write(`\x1b[${choices.length + 1}A`);
-                console.log(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}${choices[selectedIndex].label}${COLORS.reset}`);
+                clearPrevious();
+                const resultText = `${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}${choices[selectedIndex].label}${COLORS.reset}`;
+                console.log(truncateForTerminal(resultText, termWidth - 2));
                 return choices[selectedIndex].value;
             } else if (key.name === "c" && key.ctrl) {
                 throw new Error("User cancelled");
@@ -94,16 +155,30 @@ export async function multiselectPrompt(
     const selected = new Set<number>(
         choices.map((c, i) => (c.selected ? i : -1)).filter((i) => i >= 0)
     );
-    let rendered = false;
+    let lastLineCount = 0;
+    const termWidth = getTerminalWidth();
+
+    const clearPrevious = () => {
+        if (lastLineCount > 0) {
+            // Move up to start
+            process.stdout.write(`\x1b[${lastLineCount}A`);
+            // Clear each line
+            for (let i = 0; i < lastLineCount; i++) {
+                process.stdout.write('\x1b[2K\r'); // Clear line and return to start
+                if (i < lastLineCount - 1) {
+                    process.stdout.write('\x1b[1B'); // Move down one line
+                }
+            }
+            // Move back to start
+            process.stdout.write(`\x1b[${lastLineCount - 1}A\r`);
+        }
+    };
 
     const render = () => {
-        // Clear screen from cursor down
-        if (rendered) {
-            process.stdout.write('\x1b[J');
-            process.stdout.write(`\x1b[${choices.length + 1}A`);
-        }
+        clearPrevious();
 
-        process.stdout.write(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.dim}(Space to select, Enter to confirm)${COLORS.reset}\n`);
+        const lines: string[] = [];
+        lines.push(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.dim}(Space to select, Enter to confirm)${COLORS.reset}`);
 
         choices.forEach((choice, index) => {
             const isHighlighted = index === selectedIndex;
@@ -112,10 +187,14 @@ export async function multiselectPrompt(
             const checkbox = isSelected ? `${COLORS.green}◉${COLORS.reset}` : "◯";
             const label = isHighlighted ? `${COLORS.cyan}${choice.label}${COLORS.reset}` : choice.label;
             const desc = choice.description ? ` ${COLORS.dim}(${choice.description})${COLORS.reset}` : "";
-            process.stdout.write(`${prefix} ${checkbox} ${label}${desc}\n`);
+            const fullText = `${prefix} ${checkbox} ${label}${desc}`;
+            const truncated = truncateForTerminal(fullText, termWidth - 2);
+            lines.push(truncated);
         });
 
-        rendered = true;
+        // Write all lines
+        process.stdout.write(lines.join('\n') + '\n');
+        lastLineCount = lines.length;
     };
 
     enableRawMode();
@@ -142,12 +221,12 @@ export async function multiselectPrompt(
                 render();
             } else if (key.name === "return") {
                 // Clear and show final result
-                process.stdout.write('\x1b[J');
-                process.stdout.write(`\x1b[${choices.length + 1}A`);
+                clearPrevious();
                 const selectedLabels = Array.from(selected)
                     .map((i) => choices[i].label)
                     .join(", ");
-                console.log(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}${selectedLabels || "None"}${COLORS.reset}`);
+                const resultText = `${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}${selectedLabels || "None"}${COLORS.reset}`;
+                console.log(truncateForTerminal(resultText, termWidth - 2));
                 return Array.from(selected).map((i) => choices[i].value);
             } else if (key.name === "c" && key.ctrl) {
                 throw new Error("User cancelled");

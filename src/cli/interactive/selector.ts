@@ -39,44 +39,60 @@ export async function promptScanPath(defaultPath = "."): Promise<string> {
 /**
  * Prompt for scan type (what to include)
  */
-export async function promptScanType(): Promise<Partial<ScanOptions>> {
-    const options: Partial<ScanOptions> = {};
+export async function promptScanType(): Promise<Partial<ScanOptions> & { skipCurrentPath?: boolean; customPath?: string }> {
+    const options: Partial<ScanOptions> & { skipCurrentPath?: boolean; customPath?: string } = {};
 
     // Ask what to scan
     const scanTypes = await multiselectPrompt(
         "What would you like to scan?",
         [
-            { label: "Skills (SKILL.md files)", value: "skills", selected: true },
+            { label: "Current directory", value: "current", description: "Scan the current working directory", selected: true },
             { label: "System skill directories", value: "system", description: "~/.codex/skills, ~/.cursor/skills, etc." },
             { label: "Browser extensions", value: "extensions", description: "Chrome, Edge, Brave, Firefox" },
             { label: "IDE extensions", value: "ide-extensions", description: "VS Code, Cursor, JetBrains" },
+            { label: "Custom path", value: "custom", description: "Specify a different path to scan" },
         ]
     );
 
+    const scanCurrent = scanTypes.includes("current");
+    const scanCustom = scanTypes.includes("custom");
+
+    options.skipCurrentPath = !scanCurrent && !scanCustom;
     options.includeSystem = scanTypes.includes("system");
     options.includeExtensions = scanTypes.includes("extensions");
     options.includeIDEExtensions = scanTypes.includes("ide-extensions");
 
-    // Ask about depth
-    const fullDepth = await confirmPrompt(
-        "Search recursively for all SKILL.md files? (slower but more thorough)",
-        false
-    );
-    options.fullDepth = fullDepth;
-
-    // Ask about extra directories
-    const addExtraDirs = await confirmPrompt(
-        "Add extra skill directories to scan?",
-        false
-    );
-
-    if (addExtraDirs) {
-        const dirsInput = await inputPrompt(
-            "Extra skill directories (comma-separated)",
-            ""
+    // If custom path is selected, prompt for it
+    if (scanCustom) {
+        const customPath = await inputPrompt(
+            "Enter custom path to scan",
+            "."
         );
-        if (dirsInput) {
-            options.extraSkillDirs = dirsInput.split(",").map((d) => d.trim()).filter(Boolean);
+        options.customPath = customPath;
+    }
+
+    // Only ask about depth if scanning current directory or custom path
+    if (scanCurrent || scanCustom) {
+        const fullDepth = await confirmPrompt(
+            "Search recursively for all SKILL.md files? (slower but more thorough)",
+            false
+        );
+        options.fullDepth = fullDepth;
+
+        // Ask about extra directories
+        const addExtraDirs = await confirmPrompt(
+            "Add extra skill directories to scan?",
+            false
+        );
+
+        if (addExtraDirs) {
+            const dirsInput = await inputPrompt(
+                "Extra skill directories (comma-separated)",
+                ""
+            );
+            if (dirsInput) {
+                options.extraSkillDirs = dirsInput.split(",").map((d) => d.trim()).filter(Boolean);
+            }
         }
     }
 
