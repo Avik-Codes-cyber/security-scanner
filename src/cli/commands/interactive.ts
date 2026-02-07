@@ -5,22 +5,13 @@
  */
 
 import { resolve } from "path";
-import type { ScanOptions, Target, Finding, ScanResult } from "../../scanner/types";
+import type { ScanOptions, Target } from "../../scanner/types";
 import { discoverSkills } from "../../scanner/discover";
 import { discoverBrowserExtensions, discoverIDEExtensions } from "../../scanner/extensions/index";
 import { sanitizePath } from "../../utils/fs";
 import { resetPathTracking } from "../../utils/path-safety";
-import { promptScanPath, promptScanType, runInteractiveSession } from "../interactive";
-import { IndexedRuleEngine } from "../../scanner/engine/indexed-rules";
-import { scanFile } from "../../scanner/scan-file";
-import { scanFilesParallel } from "../../scanner/parallel-scanner";
-import { ScanCache } from "../../scanner/cache";
-import { applyMetaAnalyzer, summarizeFindings } from "../../scanner/report";
-import { applyFixes } from "../../scanner/fix";
-import { createTui } from "../../utils/tui";
-import { collectFiles, loadCompiledRules } from "../utils";
-import { handleScanOutput, generateReportFiles, saveScanResults, checkFailCondition } from "../output";
-import { config } from "../../config";
+import { promptScanType, runInteractiveSession } from "../interactive";
+import { runScanInternal } from "./scan";
 import { LOGO_LINES } from "../../utils/tui/logo";
 import { LOGO_COLORS } from "../../utils/tui/colors";
 
@@ -122,206 +113,6 @@ async function discoverAllTargets(
 }
 
 /**
- * Run scan with only selected targets (custom implementation)
- */
-async function runScanWithSelectedTargets(
-    selectedTargets: Target[],
-    options: ScanOptions
-): Promise<ScanResult | undefined> {
-    if (options.fix) {
-        console.warn("Note: --fix will comment out matched lines in supported file types.");
-    }
-
-    const start = Date.now();
-
-    const rules = await loadCompiledRules(selectedTargets[0]?.path || ".");
-    const indexedRules = new IndexedRuleEngine(rules);
-
-    // Initialize cache if enabled
-    const cache = config.enableCache ? new ScanCache(config.cacheDir, "1.0", config.cacheMaxAge) : null;
-    if (cache) {
-        await cache.load();
-    }
-
-    console.log(`✓ Scanning ${selectedTargets.length} selected target(s)\n`);
-
-    // Plan what files to scan for each target
-    const scanPlans = await Promise.all(
-        selectedTargets.map(async (target) => ({
-            name: target.name,
-            path: target.path,
-            files: await collectFiles([target.path], { includeDocs: true }),
-        }))
-    );
-
-    const totalFiles = scanPlans.reduce((sum, plan) => sum + plan.files.length, 0);
-
-    // Setup TUI
-    const outputFormat = options.format ?? (options.json ? "json" : "table");
-    const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
-    const tui = createTui(tuiEnabled);
-    tui.start(totalFiles, scanPlans.length);
-
-    const findings: Finding[] = [];
-
-    // Scan each target
-    for (let i = 0; i < scanPlans.length; i++) {
-        const plan = scanPlans[i];
-        tui.beginTarget(i + 1, scanPlans.length, plan.name, plan.files.length);
-
-        let skillFindings: Finding[] = [];
-
-        // Use parallel scanning if enabled and file count exceeds threshold
-        const useParallel = config.enableParallelScanning && plan.files.length >= config.parallelThreshold;
-
-        if (useParallel) {
-            const uncachedFiles: string[] = [];
-            const cachedFindings: Finding[] = [];
-
-            if (cache) {
-                for (const filePath of plan.files) {
-                    const cached = await cache.getCachedFindings(filePath);
-                    if (cached) {
-                        cachedFindings.push(...cached);
-                        tui.onFile(filePath);
-                    } else {
-                        uncachedFiles.push(filePath);
-                    }
-                }
-            } else {
-                uncachedFiles.push(...plan.files);
-            }
-
-            if (uncachedFiles.length > 0) {
-                const newFindings = await scanFilesParallel(uncachedFiles, indexedRules.getAllRules(), options);
-
-                if (cache) {
-                    for (const filePath of uncachedFiles) {
-                        const fileFindings = newFindings.filter(f => f.file === filePath);
-                        await cache.setCachedFindings(filePath, fileFindings);
-                    }
-                }
-
-                skillFindings = [...cachedFindings, ...newFindings];
-
-                for (const filePath of uncachedFiles) {
-                    tui.onFile(filePath);
-                }
-                if (newFindings.length) {
-                    tui.onFindings(newFindings);
-                }
-            } else {
-                skillFindings = cachedFindings;
-                if (cachedFindings.length) {
-                    tui.onFindings(cachedFindings);
-                }
-            }
-        } else {
-            const concurrency = Math.min(32, Math.max(4, Math.floor((navigator.hardwareConcurrency ?? 8) / 2)));
-            let index = 0;
-
-            const worker = async () => {
-                while (index < plan.files.length) {
-                    const filePath = plan.files[index++];
-                    try {
-                        let fileFindings: Finding[] = [];
-                        if (cache) {
-                            const cached = await cache.getCachedFindings(filePath);
-                            if (cached) {
-                                fileFindings = cached;
-                            } else {
-                                fileFindings = await scanFile(filePath, indexedRules, options);
-                                await cache.setCachedFindings(filePath, fileFindings);
-                            }
-                        } else {
-                            fileFindings = await scanFile(filePath, indexedRules, options);
-                        }
-
-                        if (fileFindings.length) {
-                            skillFindings.push(...fileFindings);
-                            tui.onFindings(fileFindings);
-                        }
-                    } catch {
-                        // ignore unreadable file
-                    } finally {
-                        tui.onFile(filePath);
-                    }
-                }
-            };
-
-            await Promise.all(Array.from({ length: concurrency }, worker));
-        }
-
-        const filteredSkillFindings = options.enableMeta ? applyMetaAnalyzer(skillFindings) : skillFindings;
-
-        if (options.fix && filteredSkillFindings.length > 0) {
-            await applyFixes(filteredSkillFindings);
-        }
-        if (options.enableMeta) {
-            tui.setCurrentFindings(filteredSkillFindings);
-        }
-
-        findings.push(...filteredSkillFindings);
-        tui.completeTarget(
-            {
-                name: plan.name,
-                files: plan.files.length,
-                findings: filteredSkillFindings.length,
-                counts: summarizeFindings(filteredSkillFindings),
-            },
-            filteredSkillFindings
-        );
-    }
-
-    // Save cache if enabled
-    if (cache) {
-        await cache.save();
-    }
-
-    const elapsedMs = Date.now() - start;
-    tui.finish();
-
-    let filteredFindings = options.enableMeta ? applyMetaAnalyzer(findings) : findings;
-
-    // Add confidence scores if requested
-    if (options.showConfidence) {
-        const { addConfidenceScores, filterByConfidence } = await import("../../scanner/confidence");
-        filteredFindings = addConfidenceScores(filteredFindings);
-
-        // Filter by minimum confidence if specified
-        if (options.minConfidence !== undefined) {
-            const beforeCount = filteredFindings.length;
-            filteredFindings = filterByConfidence(filteredFindings, options.minConfidence);
-            const filtered = beforeCount - filteredFindings.length;
-            if (filtered > 0) {
-                console.log(`\n📊 Filtered ${filtered} finding(s) below confidence threshold (${Math.round(options.minConfidence * 100)}%)`);
-            }
-        }
-    }
-
-    const result: ScanResult = {
-        targets: selectedTargets,
-        findings: filteredFindings,
-        scannedFiles: totalFiles,
-        elapsedMs,
-    };
-
-    // Handle output
-    await handleScanOutput(result, {
-        format: outputFormat,
-        output: options.output,
-        tuiEnabled,
-        showConfidence: options.showConfidence,
-    });
-
-    checkFailCondition(result, options);
-    await generateReportFiles(result, options);
-    await saveScanResults(result, "scan", selectedTargets[0]?.path || ".", options);
-
-    return result;
-}
-
-/**
  * Run fully interactive scan command
  */
 export async function runInteractiveScan(
@@ -383,7 +174,7 @@ export async function runInteractiveScan(
             return;
         }
 
-        // Step 5: Create a modified scan that only processes selected targets
+        // Step 5: Merge options and prepare for scan
         const modifiedOptions: ScanOptions = {
             ...options,
             ...session.scanOptions,
@@ -392,8 +183,11 @@ export async function runInteractiveScan(
         // Clean up stdin before running the scan
         cleanupStdin();
 
-        // Run the scan with only selected targets
-        await runScanWithSelectedTargets(session.selectedTargets, modifiedOptions);
+        // Log selected targets count
+        console.log(`✓ Scanning ${session.selectedTargets.length} selected target(s)\n`);
+
+        // Step 6: Use the shared scan logic from scan.ts
+        await runScanInternal(session.selectedTargets, basePath, modifiedOptions);
     } catch (error) {
         if (error instanceof Error && error.message === "User cancelled") {
             console.log("\n\n❌ Cancelled by user.\n");
@@ -426,5 +220,6 @@ function cleanupStdin(): void {
         process.stdout.write("\x1b[?25h");
     } catch {
         // Ignore cleanup errors
+
     }
 }

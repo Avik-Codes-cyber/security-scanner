@@ -16,9 +16,14 @@ import { handleScanOutput, generateReportFiles, saveScanResults, checkFailCondit
 import { config } from "../../config";
 
 /**
- * Run the main scan command
+ * Internal scan function that accepts pre-discovered targets.
+ * This is the core scanning logic shared by both runScan and interactive mode.
  */
-export async function runScan(targetPath: string, options: ScanOptions): Promise<ScanResult | undefined> {
+export async function runScanInternal(
+  targets: Target[],
+  basePath: string,
+  options: ScanOptions
+): Promise<ScanResult | undefined> {
   if (options.fix) {
     console.warn("Note: --fix will comment out matched lines in supported file types.");
   }
@@ -27,7 +32,6 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
   }
 
   const start = Date.now();
-  const basePath = sanitizePath(resolve(targetPath));
 
   // Reset path tracking for circular symlink detection
   resetPathTracking();
@@ -49,80 +53,6 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
     : null;
   if (cache) {
     await cache.load();
-  }
-
-  // Discover all targets
-  const skills = await discoverSkills(basePath, {
-    includeSystem: options.includeSystem,
-    extraSkillDirs: options.extraSkillDirs,
-    fullDepth: options.fullDepth,
-  });
-  const extensions = options.includeExtensions ? await discoverBrowserExtensions(options.extraExtensionDirs) : [];
-  const ideExtensions = options.includeIDEExtensions ? await discoverIDEExtensions(options.extraIDEExtensionDirs) : [];
-
-  // Inform about discovered targets
-  if (skills.length > 0) {
-    console.log(`✓ Found ${skills.length} skill(s)`);
-  } else if (!options.includeExtensions && !options.includeIDEExtensions) {
-    console.warn("⚠️  No skills found in the target directory.");
-  }
-
-  if (options.includeExtensions) {
-    if (extensions.length > 0) {
-      console.log(`✓ Found ${extensions.length} browser extension(s)`);
-    } else {
-      console.warn("⚠️  No browser extensions found. Install Chrome, Edge, Brave, or other Chromium-based browsers with extensions.");
-    }
-  }
-
-  if (options.includeIDEExtensions) {
-    if (ideExtensions.length > 0) {
-      console.log(`✓ Found ${ideExtensions.length} IDE extension(s)`);
-    } else {
-      console.warn("⚠️  No IDE extensions found. Install VS Code, Cursor, or other supported IDEs with extensions.");
-    }
-  }
-
-  const targets: Target[] = [
-    ...skills.map((s) => ({ kind: "skill" as const, name: s.name, path: s.path })),
-    ...extensions.map((e) => ({
-      kind: "extension" as const,
-      name: e.name,
-      path: e.path,
-      meta: {
-        browser: e.browser,
-        profile: e.profile,
-        id: e.id,
-        version: e.version,
-      },
-    })),
-    ...ideExtensions.map((e) => ({
-      kind: "ide-extension" as const,
-      name: e.name,
-      path: e.path,
-      meta: {
-        ide: e.ide,
-        extensionId: e.extensionId,
-        version: e.version,
-        publisher: e.publisher,
-        isBuiltin: e.isBuiltin,
-      },
-    })),
-  ];
-
-  // If no targets found at all, exit
-  if (targets.length === 0) {
-    console.error("❌ No targets found to scan. Stopping.");
-    console.log("\nSearched for:");
-    console.log("  • Skills (SKILL.md files)");
-    if (options.includeExtensions) {
-      console.log("  • Browser extensions");
-    }
-    if (options.includeIDEExtensions) {
-      console.log("  • IDE extensions");
-    }
-    console.log("\nTip: Make sure you're in the correct directory or use --system to scan user-level skill folders.");
-    process.exit(1);
   }
 
   // Plan what files to scan for each target
@@ -342,7 +272,91 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
 
   checkFailCondition(result, options);
   await generateReportFiles(result, options);
-  await saveScanResults(result, "scan", targetPath, options);
+  await saveScanResults(result, "scan", basePath, options);
 
   return result;
+}
+
+/**
+ * Run the main scan command with target discovery
+ */
+export async function runScan(targetPath: string, options: ScanOptions): Promise<ScanResult | undefined> {
+  const basePath = sanitizePath(resolve(targetPath));
+
+  // Discover all targets
+  const skills = await discoverSkills(basePath, {
+    includeSystem: options.includeSystem,
+    extraSkillDirs: options.extraSkillDirs,
+    fullDepth: options.fullDepth,
+  });
+  const extensions = options.includeExtensions ? await discoverBrowserExtensions(options.extraExtensionDirs) : [];
+  const ideExtensions = options.includeIDEExtensions ? await discoverIDEExtensions(options.extraIDEExtensionDirs) : [];
+
+  // Inform about discovered targets
+  if (skills.length > 0) {
+    console.log(`✓ Found ${skills.length} skill(s)`);
+  } else if (!options.includeExtensions && !options.includeIDEExtensions) {
+    console.warn("⚠️  No skills found in the target directory.");
+  }
+
+  if (options.includeExtensions) {
+    if (extensions.length > 0) {
+      console.log(`✓ Found ${extensions.length} browser extension(s)`);
+    } else {
+      console.warn("⚠️  No browser extensions found. Install Chrome, Edge, Brave, or other Chromium-based browsers with extensions.");
+    }
+  }
+
+  if (options.includeIDEExtensions) {
+    if (ideExtensions.length > 0) {
+      console.log(`✓ Found ${ideExtensions.length} IDE extension(s)`);
+    } else {
+      console.warn("⚠️  No IDE extensions found. Install VS Code, Cursor, or other supported IDEs with extensions.");
+    }
+  }
+
+  const targets: Target[] = [
+    ...skills.map((s) => ({ kind: "skill" as const, name: s.name, path: s.path })),
+    ...extensions.map((e) => ({
+      kind: "extension" as const,
+      name: e.name,
+      path: e.path,
+      meta: {
+        browser: e.browser,
+        profile: e.profile,
+        id: e.id,
+        version: e.version,
+      },
+    })),
+    ...ideExtensions.map((e) => ({
+      kind: "ide-extension" as const,
+      name: e.name,
+      path: e.path,
+      meta: {
+        ide: e.ide,
+        extensionId: e.extensionId,
+        version: e.version,
+        publisher: e.publisher,
+        isBuiltin: e.isBuiltin,
+      },
+    })),
+  ];
+
+  // If no targets found at all, exit
+  if (targets.length === 0) {
+    console.error("❌ No targets found to scan. Stopping.");
+    console.log("\nSearched for:");
+    console.log("  • Skills (SKILL.md files)");
+    if (options.includeExtensions) {
+      console.log("  • Browser extensions");
+    }
+    if (options.includeIDEExtensions) {
+      console.log("  • IDE extensions");
+    }
+    console.log("\nTip: Make sure you're in the correct directory or use --system to scan user-level skill folders.");
+    process.exit(1);
+  }
+
+  // Call the internal scan function with discovered targets
+  return runScanInternal(targets, basePath, options);
 }
