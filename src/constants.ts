@@ -82,7 +82,7 @@ export const LOCAL_SKILL_DIRS = [
     ".trae/skills",
     ".windsurf/skills",
     ".zencoder/skills",
-] as const;
+];
 
 export const SYSTEM_SKILL_DIRS = [
     ".codex/skills",
@@ -111,7 +111,7 @@ export const SYSTEM_SKILL_DIRS = [
     ".trae/skills",
     ".zencoder/skills",
     ".skills",
-] as const;
+];
 
 // ============================================================================
 // Browser Extension Paths
