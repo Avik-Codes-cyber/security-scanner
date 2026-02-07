@@ -25,7 +25,10 @@ describe("ScanCache", () => {
     test("caches and retrieves findings", async () => {
         await cache.load();
 
-        const testFile = "/test/file.md";
+        // Create a real test file
+        const testFile = join(testDir, "cache-test.md");
+        await Bun.write(testFile, "test content");
+
         const findings = [
             {
                 file: testFile,
