@@ -154,7 +154,7 @@ function buildCompletedSection(completed: TargetSummary[], innerWidth: number): 
 /**
  * Render the complete TUI frame
  */
-export function renderFrame(state: RenderState): string {
+export function renderFrame(state: RenderState, showLogo: boolean = true): string {
   const displayFindings = state.currentFindings.length > 0 ? state.currentFindings : state.lastFindings;
   const counts = summarizeFindings(displayFindings);
 
@@ -162,9 +162,9 @@ export function renderFrame(state: RenderState): string {
   const width = Math.max(90, Math.min(termWidth, 160));
   const innerWidth = width - 2;
 
-  // Logo and tagline
-  const logoLines = renderLogo(innerWidth);
-  const tagline = renderTagline(innerWidth);
+  // Logo and tagline (only on first render)
+  const logoLines = showLogo ? renderLogo(innerWidth) : [];
+  const tagline = showLogo ? renderTagline(innerWidth) : "";
 
   // Header section
   const headerLine = buildHeader(state, innerWidth);
@@ -201,10 +201,7 @@ export function renderFrame(state: RenderState): string {
   const bottom = `└${"─".repeat(innerWidth)}┘`;
 
   return [
-    "",
-    ...logoLines,
-    tagline,
-    "",
+    ...(showLogo ? ["", ...logoLines, tagline, ""] : []),
     top,
     line(headerLine, innerWidth),
     line(progressText, innerWidth),

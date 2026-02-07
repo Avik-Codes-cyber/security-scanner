@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile, readdir, stat, unlink } from "fs/promises";
 import { join } from "path";
 import type { Finding, ScanResult, Target, Severity } from "../scanner/types";
+import { DatabaseStorage } from "./db-storage";
+import { config } from "../config";
 
 export interface StoredScan {
   id: string;
@@ -53,14 +55,14 @@ class ScanStorage {
     this.maxScans = maxScans;
   }
 
-  private getDefaultDataDir(): string {
+  public getDefaultDataDir(): string {
     const home = process.env.HOME || process.env.USERPROFILE;
     if (process.platform === "darwin") {
-      return join(home || "", "Library", "Application Support", "skill-scanner");
+      return join(home || "", "Library", "Application Support", "securityscanner");
     } else if (process.platform === "win32") {
-      return join(process.env.LOCALAPPDATA || "", "skill-scanner");
+      return join(process.env.LOCALAPPDATA || "", "securityscanner");
     } else {
-      return join(home || "", ".config", "skill-scanner");
+      return join(home || "", ".config", "securityscanner");
     }
   }
 
@@ -358,5 +360,11 @@ class ScanStorage {
   }
 }
 
-export const scanStorage = new ScanStorage();
+export const scanStorage = config.storageBackend === "sqlite"
+  ? new DatabaseStorage(
+    config.sqliteDbPath || join(new ScanStorage().getDefaultDataDir(), "scans.db"),
+    config.maxStoredScans
+  )
+  : new ScanStorage(undefined, config.maxStoredScans);
+
 export { ScanStorage };
