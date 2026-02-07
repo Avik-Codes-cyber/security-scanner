@@ -49,6 +49,7 @@ export type ScanOptions = {
   includeSystem?: boolean;
   includeExtensions?: boolean;
   includeIDEExtensions?: boolean;
+  includeMcp?: boolean;
   extraExtensionDirs?: string[];
   extraIDEExtensionDirs?: string[];
   extraSkillDirs?: string[];

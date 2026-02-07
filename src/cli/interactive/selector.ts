@@ -50,17 +50,20 @@ export async function promptScanType(): Promise<Partial<ScanOptions> & { skipCur
             { label: "System skill directories", value: "system", description: "~/.codex/skills, ~/.cursor/skills, etc." },
             { label: "Browser extensions", value: "extensions", description: "Chrome, Edge, Brave, Firefox" },
             { label: "IDE extensions", value: "ide-extensions", description: "VS Code, Cursor, JetBrains" },
+            { label: "MCP servers", value: "mcp", description: "Model Context Protocol servers" },
             { label: "Custom path", value: "custom", description: "Specify a different path to scan" },
         ]
     );
 
     const scanCurrent = scanTypes.includes("current");
     const scanCustom = scanTypes.includes("custom");
+    const scanMcp = scanTypes.includes("mcp");
 
     options.skipCurrentPath = !scanCurrent && !scanCustom;
     options.includeSystem = scanTypes.includes("system");
     options.includeExtensions = scanTypes.includes("extensions");
     options.includeIDEExtensions = scanTypes.includes("ide-extensions");
+    options.includeMcp = scanMcp;
 
     // If custom path is selected, prompt for it
     if (scanCustom) {
@@ -69,6 +72,43 @@ export async function promptScanType(): Promise<Partial<ScanOptions> & { skipCur
             "."
         );
         options.customPath = customPath;
+    }
+
+    // If MCP is selected, prompt for MCP options
+    if (scanMcp) {
+        const mcpType = await selectPrompt(
+            "MCP scan type:",
+            [
+                { label: "Known configs (auto-discover)", value: "known" },
+                { label: "Config file", value: "config" },
+                { label: "Remote server URL", value: "remote" },
+                { label: "Static JSON files", value: "static" },
+            ]
+        );
+
+        options.mcpType = mcpType as "known" | "config" | "remote" | "static";
+
+        if (mcpType === "config") {
+            const configPath = await inputPrompt(
+                "Path to MCP config file",
+                "mcp.json"
+            );
+            options.mcpConfigPath = configPath;
+        } else if (mcpType === "remote") {
+            const serverUrl = await inputPrompt(
+                "MCP server URL",
+                "http://localhost:3000"
+            );
+            options.mcpServerUrl = serverUrl;
+        } else if (mcpType === "static") {
+            const staticFiles = await inputPrompt(
+                "Static JSON files (comma-separated)",
+                ""
+            );
+            if (staticFiles) {
+                options.mcpStaticFiles = staticFiles.split(",").map((f) => f.trim()).filter(Boolean);
+            }
+        }
     }
 
     // Only ask about depth if scanning current directory or custom path

@@ -9,6 +9,11 @@ import type { ScanOptions, Target } from "../../scanner/types";
 import { warn, debugWarn } from "../../utils/error-handling";
 import { discoverSkills } from "../../scanner/discover";
 import { discoverBrowserExtensions, discoverIDEExtensions } from "../../scanner/extensions/index";
+import { collectFromServer } from "../../scanner/mcp/collect";
+import { virtualizeRemote, virtualizeStatic } from "../../scanner/mcp/virtualize";
+import { discoverWellKnownMcpConfigPaths } from "../../scanner/mcp/known-configs";
+import { loadAndExtractMcpServers } from "../../scanner/mcp/config";
+import { loadStaticInputs } from "../../scanner/mcp/static";
 import { sanitizePath } from "../../utils/fs";
 import { resetPathTracking } from "../../utils/path-safety";
 import { promptScanType, runInteractiveSession } from "../interactive";
@@ -35,7 +40,14 @@ function showLogo(): void {
  */
 async function discoverAllTargets(
     basePath: string,
-    options: ScanOptions & { skipCurrentPath?: boolean }
+    options: ScanOptions & {
+        skipCurrentPath?: boolean;
+        includeMcp?: boolean;
+        mcpType?: "known" | "config" | "remote" | "static";
+        mcpConfigPath?: string;
+        mcpServerUrl?: string;
+        mcpStaticFiles?: string[];
+    }
 ): Promise<Target[]> {
     const targets: Target[] = [];
 
@@ -110,6 +122,127 @@ async function discoverAllTargets(
         );
     }
 
+    // Discover MCP servers if enabled
+    if (options.includeMcp) {
+        try {
+            if (options.mcpType === "known") {
+                // Scan well-known MCP config locations
+                const configPaths = await discoverWellKnownMcpConfigPaths();
+                for (const configPath of configPaths) {
+                    const servers = await loadAndExtractMcpServers(configPath);
+                    for (const server of servers) {
+                        try {
+                            const collected = await collectFromServer(server.serverUrl, {
+                                scan: ["tools", "prompts", "resources"],
+                                readResources: false,
+                            });
+                            const { host, files } = virtualizeRemote(server.serverUrl, collected);
+                            for (const file of files) {
+                                targets.push({
+                                    kind: "mcp" as const,
+                                    name: `${server.name}: ${file.virtualPath}`,
+                                    path: file.virtualPath,
+                                    meta: {
+                                        serverName: server.name,
+                                        serverUrl: server.serverUrl,
+                                        fileType: file.fileType,
+                                    },
+                                });
+                            }
+                        } catch (error) {
+                            debugWarn(`Warning: Failed to collect from MCP server ${server.name}`, error);
+                        }
+                    }
+                }
+            } else if (options.mcpType === "config" && options.mcpConfigPath) {
+                // Scan from config file
+                const servers = await loadAndExtractMcpServers(options.mcpConfigPath);
+                for (const server of servers) {
+                    try {
+                        const collected = await collectFromServer(server.serverUrl, {
+                            scan: ["tools", "prompts", "resources"],
+                            readResources: false,
+                        });
+                        const { host, files } = virtualizeRemote(server.serverUrl, collected);
+                        for (const file of files) {
+                            targets.push({
+                                kind: "mcp" as const,
+                                name: `${server.name}: ${file.virtualPath}`,
+                                path: file.virtualPath,
+                                meta: {
+                                    serverName: server.name,
+                                    serverUrl: server.serverUrl,
+                                    fileType: file.fileType,
+                                },
+                            });
+                        }
+                    } catch (error) {
+                        debugWarn(`Warning: Failed to collect from MCP server ${server.name}`, error);
+                    }
+                }
+            } else if (options.mcpType === "remote" && options.mcpServerUrl) {
+                // Scan single remote server
+                try {
+                    const collected = await collectFromServer(options.mcpServerUrl, {
+                        scan: ["tools", "prompts", "resources"],
+                        readResources: false,
+                    });
+                    const { host, files } = virtualizeRemote(options.mcpServerUrl, collected);
+                    for (const file of files) {
+                        targets.push({
+                            kind: "mcp" as const,
+                            name: `MCP Server: ${file.virtualPath}`,
+                            path: file.virtualPath,
+                            meta: {
+                                serverUrl: options.mcpServerUrl,
+                                fileType: file.fileType,
+                            },
+                        });
+                    }
+                } catch (error) {
+                    debugWarn(`Warning: Failed to collect from MCP server`, error);
+                }
+            } else if (options.mcpType === "static" && options.mcpStaticFiles) {
+                // Scan static JSON files
+                for (const file of options.mcpStaticFiles) {
+                    try {
+                        // Load static inputs - assuming the file contains all MCP data
+                        const inputs = await loadStaticInputs({
+                            tools: file,
+                            prompts: file,
+                            resources: file,
+                            instructions: file,
+                        });
+
+                        // Create a label from the file name
+                        const label = file.split('/').pop()?.replace(/\.json$/, '') || 'static';
+
+                        const { host, files: virtualFiles } = virtualizeStatic({
+                            label,
+                            ...inputs,
+                        });
+
+                        for (const vfile of virtualFiles) {
+                            targets.push({
+                                kind: "mcp" as const,
+                                name: `MCP Static: ${vfile.virtualPath}`,
+                                path: vfile.virtualPath,
+                                meta: {
+                                    sourceFile: file,
+                                    fileType: vfile.fileType,
+                                },
+                            });
+                        }
+                    } catch (error) {
+                        debugWarn(`Warning: Failed to load static MCP inputs from ${file}`, error);
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn(`⚠️  Failed to discover MCP servers:`, error instanceof Error ? error.message : String(error));
+        }
+    }
+
     return targets;
 }
 
@@ -159,6 +292,9 @@ export async function runInteractiveScan(
             }
             if (options.includeIDEExtensions) {
                 console.log("  • IDE extensions");
+            }
+            if (options.includeMcp) {
+                console.log("  • MCP servers");
             }
             console.log("\nTip: Try enabling system directories or extensions.\n");
             cleanupStdin();

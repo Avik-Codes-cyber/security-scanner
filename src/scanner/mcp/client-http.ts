@@ -97,6 +97,7 @@ export async function rpc<T = unknown>(
             method: "POST",
             headers: {
               "content-type": "application/json",
+              "accept": "application/json, text/event-stream",
               ...(options?.headers ?? {}),
             },
             body,
@@ -108,9 +109,20 @@ export async function rpc<T = unknown>(
         }
 
         const text = await res.text();
+
+        // Handle SSE format (event: message\ndata: {...})
+        let jsonText = text;
+        if (text.startsWith('event:')) {
+          const lines = text.split('\n');
+          const dataLine = lines.find(line => line.startsWith('data:'));
+          if (dataLine) {
+            jsonText = dataLine.substring(5).trim(); // Remove "data:" prefix
+          }
+        }
+
         let json: any;
         try {
-          json = text ? JSON.parse(text) : null;
+          json = jsonText ? JSON.parse(jsonText) : null;
         } catch {
           throw new McpRpcError(`Invalid JSON-RPC response from ${url} (${res.status})`, {
             code: res.status,
