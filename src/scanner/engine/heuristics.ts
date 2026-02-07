@@ -2,8 +2,9 @@ import { basename } from "path";
 import type { Finding } from "../types";
 import { analyzeExtensionManifest } from "../extensions/browser/manifest";
 import { analyzeCode } from "./code-analyzer";
+import { SCAN_LIMITS } from "../../constants";
 
-const MAX_HEURISTIC_FINDINGS = 10;
+const MAX_HEURISTIC_FINDINGS = SCAN_LIMITS.MAX_HEURISTIC_FINDINGS;
 
 function shannonEntropy(value: string): number {
   if (value.length === 0) return 0;

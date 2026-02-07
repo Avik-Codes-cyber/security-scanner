@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { dirExists } from "../../../utils/fs";
+import { IDE_PATTERNS } from "../../../constants";
 
 export type IDEExtensionTarget = {
   name: string;
@@ -20,14 +21,14 @@ function homeDir(): string | null {
 
 // ── Pre-compiled regex for AI keyword matching (avoids re-creation per call) ──
 
-const AI_KEYWORD_PATTERN = /\b(ai|gpt|copilot|llm|language.model|chatgpt|claude|anthropic|openai|ollama|localai|codeium|tabnine|intellisense|assistant)\b/i;
-const AI_EXTENSION_PATTERN = /copilot|chatgpt|claude|anthropic|codeium|tabnine|cody|continue|supermaven|cursor|ai|gpt|llm|assistant/i;
+const AI_KEYWORD_PATTERN = IDE_PATTERNS.AI_KEYWORD;
+const AI_EXTENSION_PATTERN = IDE_PATTERNS.AI_EXTENSION;
 
 // Pre-compiled XML regexes (avoids re-compilation per plugin)
-const XML_ID_RE = /<id>([^<]+)<\/id>/;
-const XML_NAME_RE = /<name>([^<]+)<\/name>/;
-const XML_VERSION_RE = /<version>([^<]+)<\/version>/;
-const XML_VENDOR_RE = /<vendor[^>]*>([^<]+)<\/vendor>/;
+const XML_ID_RE = IDE_PATTERNS.XML.ID;
+const XML_NAME_RE = IDE_PATTERNS.XML.NAME;
+const XML_VERSION_RE = IDE_PATTERNS.XML.VERSION;
+const XML_VENDOR_RE = IDE_PATTERNS.XML.VENDOR;
 
 // ── Platform root resolution (computed once, cached) ──
 
@@ -192,7 +193,11 @@ async function resolveNLSString(extensionPath: string, value: string): Promise<s
     const nls = JSON.parse(nlsContent) as Record<string, string>;
     const key = value.slice(1, -1); // Remove % from both sides
     return nls[key] || value;
-  } catch {
+  } catch (error) {
+    // NLS file not found or invalid - return original value
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to resolve NLS string "${value}" in ${extensionPath}:`, error instanceof Error ? error.message : String(error));
+    }
     return value;
   }
 }
@@ -236,7 +241,11 @@ async function parseVSCodeExtension(extensionPath: string): Promise<VSCodeExtens
         usesLanguageModel: isAIRelated || false,
       }
     };
-  } catch {
+  } catch (error) {
+    // Failed to parse package.json - extension is invalid
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to parse VS Code extension at ${extensionPath}:`, error instanceof Error ? error.message : String(error));
+    }
     return null;
   }
 }
@@ -274,7 +283,11 @@ async function discoverVSCodeExtensions(root: IDERoot): Promise<IDEExtensionTarg
     );
 
     return results.filter((r): r is IDEExtensionTarget => r !== null);
-  } catch {
+  } catch (error) {
+    // Failed to read VS Code extensions directory
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to discover VS Code extensions in ${root.path}:`, error instanceof Error ? error.message : String(error));
+    }
     return [];
   }
 }
@@ -317,7 +330,11 @@ async function discoverJetBrainsPlugins(root: IDERoot): Promise<IDEExtensionTarg
     );
 
     return results.filter((r): r is IDEExtensionTarget => r !== null);
-  } catch {
+  } catch (error) {
+    // Failed to read JetBrains plugins directory
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to discover JetBrains plugins in ${root.path}:`, error instanceof Error ? error.message : String(error));
+    }
     return [];
   }
 }
@@ -344,14 +361,22 @@ async function discoverZedExtensions(root: IDERoot): Promise<IDEExtensionTarget[
             version: manifest.version,
             publisher: manifest.author,
           };
-        } catch {
+        } catch (error) {
+          // Failed to parse extension.json for this Zed extension
+          if (process.env.DEBUG) {
+            console.warn(`Warning: Failed to parse Zed extension at ${extPath}:`, error instanceof Error ? error.message : String(error));
+          }
           return null;
         }
       })
     );
 
     return results.filter((r): r is IDEExtensionTarget => r !== null);
-  } catch {
+  } catch (error) {
+    // Failed to read Zed extensions directory
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to discover Zed extensions in ${root.path}:`, error instanceof Error ? error.message : String(error));
+    }
     return [];
   }
 }

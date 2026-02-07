@@ -13,15 +13,7 @@ import {
     hideCursor,
     showCursor,
 } from "./input";
-
-const COLORS = {
-    reset: "\x1b[0m",
-    cyan: "\x1b[36m",
-    green: "\x1b[32m",
-    yellow: "\x1b[33m",
-    dim: "\x1b[2m",
-    bold: "\x1b[1m",
-};
+import { COLOR } from "../../utils/tui/colors";
 
 /**
  * Get terminal width with fallback
@@ -59,7 +51,7 @@ function truncateForTerminal(text: string, maxWidth: number): string {
 
     // If we have ANSI codes, try to preserve them
     if (ansiCodes.length > 0) {
-        return ansiCodes[0] + truncated + COLORS.reset;
+        return ansiCodes[0] + truncated + COLOR.reset;
     }
 
     return truncated;
@@ -96,13 +88,13 @@ export async function selectPrompt(
         clearPrevious();
 
         const lines: string[] = [];
-        lines.push(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset}`);
+        lines.push(`${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset}`);
 
         choices.forEach((choice, index) => {
             const isSelected = index === selectedIndex;
-            const prefix = isSelected ? `${COLORS.cyan}❯${COLORS.reset}` : " ";
-            const label = isSelected ? `${COLORS.cyan}${choice.label}${COLORS.reset}` : choice.label;
-            const desc = choice.description ? ` ${COLORS.dim}(${choice.description})${COLORS.reset}` : "";
+            const prefix = isSelected ? `${COLOR.cyan}❯${COLOR.reset}` : " ";
+            const label = isSelected ? `${COLOR.cyan}${choice.label}${COLOR.reset}` : choice.label;
+            const desc = choice.description ? ` ${COLOR.dim}(${choice.description})${COLOR.reset}` : "";
             const fullText = `${prefix} ${label}${desc}`;
             const truncated = truncateForTerminal(fullText, termWidth - 2);
             lines.push(truncated);
@@ -131,7 +123,7 @@ export async function selectPrompt(
             } else if (key.name === "return") {
                 // Clear and show final result
                 clearPrevious();
-                const resultText = `${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}${choices[selectedIndex].label}${COLORS.reset}`;
+                const resultText = `${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset} ${COLOR.cyan}${choices[selectedIndex].label}${COLOR.reset}`;
                 console.log(truncateForTerminal(resultText, termWidth - 2));
                 return choices[selectedIndex].value;
             } else if (key.name === "c" && key.ctrl) {
@@ -178,15 +170,15 @@ export async function multiselectPrompt(
         clearPrevious();
 
         const lines: string[] = [];
-        lines.push(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.dim}(Space to select, Enter to confirm)${COLORS.reset}`);
+        lines.push(`${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset} ${COLOR.dim}(Space to select, Enter to confirm)${COLOR.reset}`);
 
         choices.forEach((choice, index) => {
             const isHighlighted = index === selectedIndex;
             const isSelected = selected.has(index);
-            const prefix = isHighlighted ? `${COLORS.cyan}❯${COLORS.reset}` : " ";
-            const checkbox = isSelected ? `${COLORS.green}◉${COLORS.reset}` : "◯";
-            const label = isHighlighted ? `${COLORS.cyan}${choice.label}${COLORS.reset}` : choice.label;
-            const desc = choice.description ? ` ${COLORS.dim}(${choice.description})${COLORS.reset}` : "";
+            const prefix = isHighlighted ? `${COLOR.cyan}❯${COLOR.reset}` : " ";
+            const checkbox = isSelected ? `${COLOR.green}◉${COLOR.reset}` : "◯";
+            const label = isHighlighted ? `${COLOR.cyan}${choice.label}${COLOR.reset}` : choice.label;
+            const desc = choice.description ? ` ${COLOR.dim}(${choice.description})${COLOR.reset}` : "";
             const fullText = `${prefix} ${checkbox} ${label}${desc}`;
             const truncated = truncateForTerminal(fullText, termWidth - 2);
             lines.push(truncated);
@@ -225,7 +217,7 @@ export async function multiselectPrompt(
                 const selectedLabels = Array.from(selected)
                     .map((i) => choices[i].label)
                     .join(", ");
-                const resultText = `${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}${selectedLabels || "None"}${COLORS.reset}`;
+                const resultText = `${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset} ${COLOR.cyan}${selectedLabels || "None"}${COLOR.reset}`;
                 console.log(truncateForTerminal(resultText, termWidth - 2));
                 return Array.from(selected).map((i) => choices[i].value);
             } else if (key.name === "c" && key.ctrl) {
@@ -250,7 +242,7 @@ export async function confirmPrompt(
     enableRawMode();
 
     try {
-        console.log(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.dim}${hint}${COLORS.reset}`);
+        console.log(`${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset} ${COLOR.dim}${hint}${COLOR.reset}`);
 
         const key = await waitForKey();
 
@@ -259,13 +251,13 @@ export async function confirmPrompt(
 
         if (key.name === "return") {
             const answer = defaultValue ? "Yes" : "No";
-            console.log(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}${answer}${COLORS.reset}`);
+            console.log(`${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset} ${COLOR.cyan}${answer}${COLOR.reset}`);
             return defaultValue;
         } else if (key.name === "y") {
-            console.log(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}Yes${COLORS.reset}`);
+            console.log(`${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset} ${COLOR.cyan}Yes${COLOR.reset}`);
             return true;
         } else if (key.name === "n") {
-            console.log(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}No${COLORS.reset}`);
+            console.log(`${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset} ${COLOR.cyan}No${COLOR.reset}`);
             return false;
         } else if (key.name === "c" && key.ctrl) {
             throw new Error("User cancelled");
@@ -273,7 +265,7 @@ export async function confirmPrompt(
 
         // Invalid input, use default
         const answer = defaultValue ? "Yes" : "No";
-        console.log(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}${answer}${COLORS.reset}`);
+        console.log(`${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset} ${COLOR.cyan}${answer}${COLOR.reset}`);
         return defaultValue;
     } finally {
         disableRawMode();
@@ -300,8 +292,8 @@ export async function inputPrompt(
     process.stdin.setEncoding('utf8');
     showCursor();
 
-    const hint = defaultValue ? ` ${COLORS.dim}(${defaultValue})${COLORS.reset}` : "";
-    process.stdout.write(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset}${hint}: `);
+    const hint = defaultValue ? ` ${COLOR.dim}(${defaultValue})${COLOR.reset}` : "";
+    process.stdout.write(`${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset}${hint}: `);
 
     return new Promise((resolve, reject) => {
         let input = "";
@@ -327,7 +319,7 @@ export async function inputPrompt(
                         const result = input.trim() || defaultValue;
                         // Move up and clear, then show result
                         process.stdout.write('\x1b[1A\x1b[2K');
-                        console.log(`${COLORS.cyan}?${COLORS.reset} ${COLORS.bold}${message}${COLORS.reset} ${COLORS.cyan}${result}${COLORS.reset}`);
+                        console.log(`${COLOR.cyan}?${COLOR.reset} ${COLOR.bold}${message}${COLOR.reset} ${COLOR.cyan}${result}${COLOR.reset}`);
                         resolve(result);
                         return;
                     }

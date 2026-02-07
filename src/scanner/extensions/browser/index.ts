@@ -1,6 +1,13 @@
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
 import { dirExists } from "../../../utils/fs";
+import {
+  MAC_BROWSER_ROOTS,
+  LINUX_BROWSER_ROOTS,
+  WINDOWS_BROWSER_ROOTS,
+  FIREFOX_ROOTS,
+  BROWSER_PATHS,
+} from "../../../constants";
 
 export type ExtensionTarget = {
   name: string;
@@ -18,72 +25,44 @@ function homeDir(): string | null {
 function macChromiumRoots(): Array<{ browser: string; path: string }> {
   const home = homeDir();
   if (!home) return [];
-  return [
-    { browser: "Chrome", path: join(home, "Library", "Application Support", "Google", "Chrome") },
-    { browser: "Chrome Canary", path: join(home, "Library", "Application Support", "Google", "Chrome Canary") },
-    { browser: "Edge", path: join(home, "Library", "Application Support", "Microsoft Edge") },
-    { browser: "Edge Beta", path: join(home, "Library", "Application Support", "Microsoft Edge Beta") },
-    { browser: "Edge Dev", path: join(home, "Library", "Application Support", "Microsoft Edge Dev") },
-    { browser: "Edge Canary", path: join(home, "Library", "Application Support", "Microsoft Edge Canary") },
-    { browser: "Brave", path: join(home, "Library", "Application Support", "BraveSoftware", "Brave-Browser") },
-    { browser: "Brave Beta", path: join(home, "Library", "Application Support", "BraveSoftware", "Brave-Browser-Beta") },
-    { browser: "Brave Nightly", path: join(home, "Library", "Application Support", "BraveSoftware", "Brave-Browser-Nightly") },
-    { browser: "Chromium", path: join(home, "Library", "Application Support", "Chromium") },
-    { browser: "Arc", path: join(home, "Library", "Application Support", "Arc") },
-    { browser: "Arc", path: join(home, "Library", "Application Support", "Arc", "User Data") },
-    { browser: "Vivaldi", path: join(home, "Library", "Application Support", "Vivaldi") },
-    { browser: "Opera", path: join(home, "Library", "Application Support", "com.operasoftware.Opera") },
-    { browser: "Opera GX", path: join(home, "Library", "Application Support", "com.operasoftware.OperaGX") },
-  ];
+  return MAC_BROWSER_ROOTS.map(({ browser, path }) => ({
+    browser,
+    path: join(home, ...path),
+  }));
 }
 
 function linuxChromiumRoots(): Array<{ browser: string; path: string }> {
   const home = homeDir();
   if (!home) return [];
-  return [
-    { browser: "Chrome", path: join(home, ".config", "google-chrome") },
-    { browser: "Chrome Beta", path: join(home, ".config", "google-chrome-beta") },
-    { browser: "Chrome Dev", path: join(home, ".config", "google-chrome-unstable") },
-    { browser: "Chromium", path: join(home, ".config", "chromium") },
-    { browser: "Edge", path: join(home, ".config", "microsoft-edge") },
-    { browser: "Edge Beta", path: join(home, ".config", "microsoft-edge-beta") },
-    { browser: "Edge Dev", path: join(home, ".config", "microsoft-edge-dev") },
-    { browser: "Brave", path: join(home, ".config", "BraveSoftware", "Brave-Browser") },
-    { browser: "Brave Beta", path: join(home, ".config", "BraveSoftware", "Brave-Browser-Beta") },
-    { browser: "Brave Nightly", path: join(home, ".config", "BraveSoftware", "Brave-Browser-Nightly") },
-    { browser: "Vivaldi", path: join(home, ".config", "vivaldi") },
-    { browser: "Vivaldi Snapshot", path: join(home, ".config", "vivaldi-snapshot") },
-    { browser: "Opera", path: join(home, ".config", "opera") },
-    { browser: "Opera Beta", path: join(home, ".config", "opera-beta") },
-  ];
+  return LINUX_BROWSER_ROOTS.map(({ browser, path }) => ({
+    browser,
+    path: join(home, ...path),
+  }));
 }
 
 function winChromiumRoots(): Array<{ browser: string; path: string }> {
   const local = process.env.LOCALAPPDATA;
   const roaming = process.env.APPDATA;
   if (!local) return [];
-  return [
-    { browser: "Chrome", path: join(local, "Google", "Chrome", "User Data") },
-    { browser: "Chrome Canary", path: join(local, "Google", "Chrome SxS", "User Data") },
-    { browser: "Edge", path: join(local, "Microsoft", "Edge", "User Data") },
-    { browser: "Edge Beta", path: join(local, "Microsoft", "Edge Beta", "User Data") },
-    { browser: "Edge Dev", path: join(local, "Microsoft", "Edge Dev", "User Data") },
-    { browser: "Edge Canary", path: join(local, "Microsoft", "Edge SxS", "User Data") },
-    { browser: "Brave", path: join(local, "BraveSoftware", "Brave-Browser", "User Data") },
-    { browser: "Brave Beta", path: join(local, "BraveSoftware", "Brave-Browser-Beta", "User Data") },
-    { browser: "Brave Nightly", path: join(local, "BraveSoftware", "Brave-Browser-Nightly", "User Data") },
-    { browser: "Vivaldi", path: join(local, "Vivaldi", "User Data") },
-    // Opera uses a single profile directory rooted in %APPDATA%.
-    ...(roaming ? [{ browser: "Opera", path: join(roaming, "Opera Software", "Opera Stable") }] : []),
-    ...(roaming ? [{ browser: "Opera GX", path: join(roaming, "Opera Software", "Opera GX Stable") }] : []),
-  ];
+
+  const roots: Array<{ browser: string; path: string }> = [];
+
+  for (const config of WINDOWS_BROWSER_ROOTS) {
+    if ("localAppData" in config) {
+      roots.push({ browser: config.browser, path: join(local, ...config.localAppData) });
+    } else if ("appData" in config && roaming) {
+      roots.push({ browser: config.browser, path: join(roaming, ...config.appData) });
+    }
+  }
+
+  return roots;
 }
 
 async function listChromiumProfileDirs(userDataDir: string): Promise<Array<{ profile: string; path: string }>> {
   // Some Chromium forks (notably Opera) use a single profile dir where Extensions/ lives directly.
-  const directExtensions = join(userDataDir, "Extensions");
+  const directExtensions = join(userDataDir, BROWSER_PATHS.EXTENSIONS_DIR);
   if (await dirExists(directExtensions)) {
-    return [{ profile: "Default", path: userDataDir }];
+    return [{ profile: BROWSER_PATHS.CHROMIUM_PROFILE_NAMES[0], path: userDataDir }];
   }
 
   const results: Array<{ profile: string; path: string }> = [];
@@ -95,8 +74,9 @@ async function listChromiumProfileDirs(userDataDir: string): Promise<Array<{ pro
     for (const name of candidates) {
       // Be liberal: some browsers add "System Profile" or other names.
       const looksLikeProfile =
-        name === "Default" || name === "Guest Profile" || name === "System Profile" || name.startsWith("Profile ");
-      const extRoot = join(userDataDir, name, "Extensions");
+        BROWSER_PATHS.CHROMIUM_PROFILE_NAMES.includes(name as any) ||
+        name.startsWith(BROWSER_PATHS.CHROMIUM_PROFILE_PREFIX);
+      const extRoot = join(userDataDir, name, BROWSER_PATHS.EXTENSIONS_DIR);
       if (looksLikeProfile) {
         if (await dirExists(extRoot)) results.push({ profile: name, path: join(userDataDir, name) });
         continue;
@@ -104,7 +84,11 @@ async function listChromiumProfileDirs(userDataDir: string): Promise<Array<{ pro
       // Fall back: include any directory that has Extensions/ under it.
       if (await dirExists(extRoot)) results.push({ profile: name, path: join(userDataDir, name) });
     }
-  } catch {
+  } catch (error) {
+    // Failed to read user data directory
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to list Chromium profile directories in ${userDataDir}:`, error instanceof Error ? error.message : String(error));
+    }
     return [];
   }
 
@@ -149,14 +133,18 @@ async function discoverChromiumExtensions(root: { browser: string; path: string 
 
   const profiles = await listChromiumProfileDirs(root.path);
   for (const profile of profiles) {
-    const extRoot = join(profile.path, "Extensions");
+    const extRoot = join(profile.path, BROWSER_PATHS.EXTENSIONS_DIR);
     if (!(await dirExists(extRoot))) continue;
 
     let extIds: string[] = [];
     try {
       const entries = await readdir(extRoot, { withFileTypes: true });
       extIds = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    } catch {
+    } catch (error) {
+      // Failed to read extensions directory for this profile
+      if (process.env.DEBUG) {
+        console.warn(`Warning: Failed to read extensions directory ${extRoot}:`, error instanceof Error ? error.message : String(error));
+      }
       continue;
     }
 
@@ -166,7 +154,11 @@ async function discoverChromiumExtensions(root: { browser: string; path: string 
       try {
         const entries = await readdir(idDir, { withFileTypes: true });
         versions = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-      } catch {
+      } catch (error) {
+        // Failed to read version directories for this extension
+        if (process.env.DEBUG) {
+          console.warn(`Warning: Failed to read extension versions in ${idDir}:`, error instanceof Error ? error.message : String(error));
+        }
         continue;
       }
 
@@ -219,22 +211,26 @@ async function discoverFirefoxProfiles(): Promise<{ firefoxDir: string; profiles
 
   const firefoxDir =
     process.platform === "darwin"
-      ? join(home, "Library", "Application Support", "Firefox")
+      ? join(home, ...FIREFOX_ROOTS.darwin)
       : process.platform === "win32"
         ? (() => {
           const appdata = process.env.APPDATA;
-          return appdata ? join(appdata, "Mozilla", "Firefox") : null;
+          return appdata ? join(appdata, ...FIREFOX_ROOTS.win32) : null;
         })()
-        : join(home, ".mozilla", "firefox");
+        : join(home, ...FIREFOX_ROOTS.linux);
 
   if (!firefoxDir) return null;
   if (!(await dirExists(firefoxDir))) return null;
 
-  const profilesIniPath = join(firefoxDir, "profiles.ini");
+  const profilesIniPath = join(firefoxDir, BROWSER_PATHS.FIREFOX_PROFILES_INI);
   let iniText: string | null = null;
   try {
     iniText = await readFile(profilesIniPath, "utf-8");
-  } catch {
+  } catch (error) {
+    // Failed to read Firefox profiles.ini
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to read Firefox profiles.ini at ${profilesIniPath}:`, error instanceof Error ? error.message : String(error));
+    }
     iniText = null;
   }
 
@@ -254,7 +250,7 @@ async function discoverFirefoxProfiles(): Promise<{ firefoxDir: string; profiles
 
   // Fallback: enumerate Profiles/ on macOS and Windows if profiles.ini is missing.
   if (profiles.length === 0 && (process.platform === "darwin" || process.platform === "win32")) {
-    const profilesRoot = join(firefoxDir, "Profiles");
+    const profilesRoot = join(firefoxDir, BROWSER_PATHS.FIREFOX_PROFILES_DIR);
     if (await dirExists(profilesRoot)) {
       try {
         const entries = await readdir(profilesRoot, { withFileTypes: true });
@@ -262,8 +258,11 @@ async function discoverFirefoxProfiles(): Promise<{ firefoxDir: string; profiles
           if (!entry.isDirectory()) continue;
           profiles.push({ name: entry.name, path: join(profilesRoot, entry.name) });
         }
-      } catch {
-        // ignore
+      } catch (error) {
+        // Failed to enumerate Firefox Profiles directory
+        if (process.env.DEBUG) {
+          console.warn(`Warning: Failed to read Firefox Profiles directory ${profilesRoot}:`, error instanceof Error ? error.message : String(error));
+        }
       }
     }
   }
@@ -277,7 +276,7 @@ async function discoverFirefoxExtensions(): Promise<ExtensionTarget[]> {
 
   const targets: ExtensionTarget[] = [];
   for (const profile of result.profiles) {
-    const extDir = join(profile.path, "extensions");
+    const extDir = join(profile.path, BROWSER_PATHS.FIREFOX_EXTENSIONS_DIR);
     if (!(await dirExists(extDir))) continue;
 
     // Firefox commonly stores add-ons as .xpi (zip). We do not unpack archives yet.
@@ -295,8 +294,11 @@ async function discoverFirefoxExtensions(): Promise<ExtensionTarget[]> {
           id: entry.name,
         });
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      // Failed to read Firefox extensions directory
+      if (process.env.DEBUG) {
+        console.warn(`Warning: Failed to read Firefox extensions directory ${extDir}:`, error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
@@ -350,7 +352,7 @@ export async function discoverBrowserExtensionWatchRoots(extraRoots?: string[]):
     if (!(await dirExists(root.path))) continue;
     const profiles = await listChromiumProfileDirs(root.path);
     for (const profile of profiles) {
-      const extRoot = join(profile.path, "Extensions");
+      const extRoot = join(profile.path, BROWSER_PATHS.EXTENSIONS_DIR);
       if (await dirExists(extRoot)) watchRoots.push(extRoot);
     }
   }
@@ -358,7 +360,7 @@ export async function discoverBrowserExtensionWatchRoots(extraRoots?: string[]):
   const ff = await discoverFirefoxProfiles();
   if (ff) {
     for (const profile of ff.profiles) {
-      const extDir = join(profile.path, "extensions");
+      const extDir = join(profile.path, BROWSER_PATHS.FIREFOX_EXTENSIONS_DIR);
       if (await dirExists(extDir)) watchRoots.push(extDir);
     }
   }

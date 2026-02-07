@@ -6,17 +6,9 @@ import { scanContent } from "./engine/rule-engine";
 import { runHeuristics } from "./engine/heuristics";
 import type { IndexedRuleEngine } from "./engine/indexed-rules";
 import { isSafePath, hasNullByte, detectSpecialFile } from "../utils/path-safety";
+import { FILE_SIZE_LIMITS, BINARY_EXTENSIONS } from "../constants";
 
-const MAX_BYTES = 5 * 1024 * 1024;
-
-const BINARY_EXTENSIONS = new Set([
-  ".exe",
-  ".bin",
-  ".dll",
-  ".so",
-  ".dylib",
-  ".jar",
-]);
+const MAX_BYTES = FILE_SIZE_LIMITS.MAX_SCAN_BYTES;
 
 export function detectFileType(filePath: string): string | null {
   const base = basename(filePath);

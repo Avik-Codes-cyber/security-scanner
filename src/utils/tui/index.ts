@@ -35,7 +35,7 @@ function createNoopTui(): ScanUi {
 /**
  * Create the active TUI controller
  */
-function createActiveTui(): ScanUi {
+function createActiveTui(showConfidence: boolean = false): ScanUi {
   const DEBOUNCE_DELAY = 200;
   const MIN_RENDER_INTERVAL = 100;
 
@@ -53,6 +53,7 @@ function createActiveTui(): ScanUi {
     currentFindings: [],
     lastFindings: [],
     completed: [],
+    showConfidence,
   };
 
   let endTime: number | undefined;
@@ -87,8 +88,8 @@ function createActiveTui(): ScanUi {
       process.stdout.write("\x1b[?25l\x1b[H\x1b[2J" + output);
       isFirstRender = false;
     } else {
-      // Subsequent renders: just move to home and overwrite
-      process.stdout.write("\x1b[H" + output);
+      // Subsequent renders: clear screen and redraw to prevent artifacts
+      process.stdout.write("\x1b[H\x1b[2J" + output);
     }
   };
 
@@ -185,9 +186,9 @@ function createActiveTui(): ScanUi {
 /**
  * Create a TUI controller based on whether TUI is enabled or not
  */
-export function createTui(enabled: boolean): ScanUi {
+export function createTui(enabled: boolean, showConfidence: boolean = false): ScanUi {
   if (!enabled) {
     return createNoopTui();
   }
-  return createActiveTui();
+  return createActiveTui(showConfidence);
 }

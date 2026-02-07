@@ -1,9 +1,10 @@
 import { stat } from "fs/promises";
 import { resolve, normalize } from "path";
 import { homedir } from "os";
+import { FILE_SIZE_LIMITS } from "../constants";
 
-const DEFAULT_MAX_BYTES = 5 * 1024 * 1024; // 5MB
-const STREAMING_THRESHOLD = 10 * 1024 * 1024; // 10MB - use streaming for files larger than this
+const DEFAULT_MAX_BYTES = FILE_SIZE_LIMITS.MAX_SCAN_BYTES;
+const STREAMING_THRESHOLD = FILE_SIZE_LIMITS.STREAMING_THRESHOLD;
 
 /**
  * Detect text encoding from a buffer sample.

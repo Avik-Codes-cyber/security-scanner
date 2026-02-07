@@ -5,6 +5,7 @@ import { COLOR } from "./colors";
 import { pad, line, wrapText } from "./formatters";
 import { colorizeSeverity, getBadgeForSeverity, progressBar } from "./components";
 import { renderLogo, renderTagline } from "./logo";
+import { colorizeConfidence } from "../../scanner/reporting/formatters";
 
 /**
  * State required for rendering the TUI
@@ -22,6 +23,7 @@ export interface RenderState {
   currentFindings: Finding[];
   lastFindings: Finding[];
   completed: TargetSummary[];
+  showConfidence?: boolean;
 }
 
 /**
@@ -72,13 +74,19 @@ function buildFindingsSummary(counts: Record<Severity, number>, totalFindings: n
 /**
  * Build the findings table header
  */
-function buildTableHeader(colSev: number, colFile: number, colRule: number, colMsg: number): string {
-  return [
+function buildTableHeader(colSev: number, colFile: number, colRule: number, colMsg: number, showConfidence: boolean = false, colConf?: number): string {
+  const columns = [
     pad(`${COLOR.bold}Severity${COLOR.reset}`, colSev),
     pad(`${COLOR.bold}File${COLOR.reset}`, colFile),
     pad(`${COLOR.bold}Rule${COLOR.reset}`, colRule),
     pad(`${COLOR.bold}Message${COLOR.reset}`, colMsg),
-  ].join("  ");
+  ];
+
+  if (showConfidence && colConf) {
+    columns.push(pad(`${COLOR.bold}Confidence${COLOR.reset}`, colConf));
+  }
+
+  return columns.join("  ");
 }
 
 /**
@@ -90,7 +98,9 @@ function buildFindingRows(
   colFile: number,
   colRule: number,
   colMsg: number,
-  maxRows: number = 50
+  maxRows: number = 50,
+  showConfidence: boolean = false,
+  colConf?: number
 ): string[] {
   const rows: string[] = [];
 
@@ -100,18 +110,23 @@ function buildFindingRows(
     const fileLines = wrapText(finding.file, colFile);
     const ruleLines = wrapText(finding.ruleId, colRule);
     const msgLines = wrapText(finding.message, colMsg);
-    const lineCount = Math.max(fileLines.length, ruleLines.length, msgLines.length, 1);
+    const confLines = showConfidence && colConf ? [colorizeConfidence(finding.confidence)] : [];
+    const lineCount = Math.max(fileLines.length, ruleLines.length, msgLines.length, confLines.length, 1);
 
     for (let i = 0; i < lineCount; i++) {
       const sevCell = i === 0 ? `${badge} ${severity}` : "";
-      rows.push(
-        [
-          pad(sevCell, colSev + 2),
-          pad(fileLines[i] ?? "", colFile),
-          pad(ruleLines[i] ?? "", colRule),
-          pad(msgLines[i] ?? "", colMsg),
-        ].join("  ")
-      );
+      const columns = [
+        pad(sevCell, colSev + 2),
+        pad(fileLines[i] ?? "", colFile),
+        pad(ruleLines[i] ?? "", colRule),
+        pad(msgLines[i] ?? "", colMsg),
+      ];
+
+      if (showConfidence && colConf) {
+        columns.push(pad(i === 0 ? confLines[0] ?? "" : "", colConf));
+      }
+
+      rows.push(columns.join("  "));
     }
   }
 
@@ -176,10 +191,11 @@ export function renderFrame(state: RenderState, showLogo: boolean = true): strin
   const colSev = 12;
   const colFile = Math.max(28, Math.min(60, Math.floor(innerWidth * 0.40)));
   const colRule = 20;
-  const colMsg = Math.max(20, innerWidth - (colSev + colFile + colRule + 8));
+  const colConf = state.showConfidence ? 12 : 0;
+  const colMsg = Math.max(20, innerWidth - (colSev + colFile + colRule + colConf + (state.showConfidence ? 10 : 8)));
 
-  const tableHeader = buildTableHeader(colSev, colFile, colRule, colMsg);
-  const rows = buildFindingRows(displayFindings, colSev, colFile, colRule, colMsg);
+  const tableHeader = buildTableHeader(colSev, colFile, colRule, colMsg, state.showConfidence, colConf);
+  const rows = buildFindingRows(displayFindings, colSev, colFile, colRule, colMsg, 50, state.showConfidence, colConf);
 
   const moreFindings = displayFindings.length > 50 ? displayFindings.length - 50 : 0;
   const body =

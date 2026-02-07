@@ -1,5 +1,7 @@
 # Security Scanner
 
+![Security Scanner](./public/security_scanner.png)
+
 High-performance security scanner for agent skills, browser extensions, IDE extensions, and MCP servers. Built with Bun + TypeScript.
 
 ## Features

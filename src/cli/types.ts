@@ -1,4 +1,5 @@
 import type { ScanOptions, Severity } from "../scanner/types";
+import { SKIP_DIRS, SCAN_EXTENSIONS, SPECIAL_FILES, BINARY_EXTENSIONS } from "../constants";
 
 /**
  * MCP CLI subcommand types
@@ -36,10 +37,5 @@ export type ParsedArgs = {
   mcp: McpCliOptions;
 };
 
-/**
- * Constants for file scanning
- */
-export const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
-export const SCAN_EXTENSIONS = new Set([".py", ".ts", ".js", ".mjs", ".cjs", ".sh", ".bash"]);
-export const SPECIAL_FILES = new Set(["SKILL.md", "manifest.json", "package.json"]);
-export const BINARY_EXTENSIONS = new Set([".exe", ".bin", ".dll", ".so", ".dylib", ".jar", ".crx", ".xpi", ".zip"]);
+// Re-export constants for backward compatibility
+export { SKIP_DIRS, SCAN_EXTENSIONS, SPECIAL_FILES, BINARY_EXTENSIONS };

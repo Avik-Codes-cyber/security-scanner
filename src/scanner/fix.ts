@@ -1,8 +1,9 @@
 import { extname } from "path";
 import type { Finding } from "./types.ts";
 import { readText } from "../utils/fs";
+import { FILE_SIZE_LIMITS } from "../constants";
 
-const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BYTES = FILE_SIZE_LIMITS.MAX_SCAN_BYTES;
 
 type CommentStyle =
   | { type: "prefix"; value: string }
