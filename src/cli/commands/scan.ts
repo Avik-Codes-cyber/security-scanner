@@ -67,8 +67,16 @@ export async function runScanInternal(
 
   const totalFiles = scanPlans.reduce((sum, plan) => sum + plan.files.length, 0);
 
+  // Generate scan description based on target types
+  const targetKinds = new Set(targets.map(t => t.kind));
+  const descriptions: string[] = [];
+  if (targetKinds.has("skill")) descriptions.push("Skills");
+  if (targetKinds.has("extension")) descriptions.push("Browser Extensions");
+  if (targetKinds.has("ide-extension")) descriptions.push("IDE Extensions");
+  const scanDescription = descriptions.length > 0 ? descriptions.join(", ") : "Files";
+
   // Setup TUI
-  const { tui, outputFormat, tuiEnabled } = setupScanTui(options, totalFiles, scanPlans.length, options.showConfidence);
+  const { tui, outputFormat, tuiEnabled } = setupScanTui(options, totalFiles, scanPlans.length, options.showConfidence, scanDescription);
 
   const findings: Finding[] = [];
   let totalFindingsReached = false;
@@ -283,6 +291,20 @@ export async function runScanInternal(
 export async function runScan(targetPath: string, options: ScanOptions): Promise<ScanResult | undefined> {
   const basePath = sanitizePath(resolve(targetPath));
 
+  // Generate scan description based on what's being scanned
+  const scanTypes: string[] = [];
+  if (options.includeExtensions) scanTypes.push("Browser Extensions");
+  if (options.includeIDEExtensions) scanTypes.push("IDE Extensions");
+  if (!options.includeExtensions && !options.includeIDEExtensions) scanTypes.push("Skills");
+  if (scanTypes.length === 0) scanTypes.push("Skills");
+  const scanDescription = scanTypes.join(", ");
+
+  // Show scan header
+  const separator = "═".repeat(100);
+  console.log(`\n${separator}`);
+  console.log(`   SCAN RESULTS - ${scanDescription}`);
+  console.log(`${separator}\n`);
+
   // Discover all targets
   const skills = await discoverSkills(basePath, {
     includeSystem: options.includeSystem,
@@ -314,6 +336,9 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
       console.warn("⚠️  No IDE extensions found. Install VS Code, Cursor, or other supported IDEs with extensions.");
     }
   }
+
+  // Add separation after discovery messages
+  console.log("");
 
   const targets: Target[] = [
     ...skills.map((s) => ({ kind: "skill" as const, name: s.name, path: s.path })),
