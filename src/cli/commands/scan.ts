@@ -10,6 +10,7 @@ import { applyMetaAnalyzer, summarizeFindings } from "../../scanner/report";
 import { applyFixes } from "../../scanner/fix";
 import { createTui } from "../../utils/tui";
 import { sanitizePath } from "../../utils/fs";
+import { resetPathTracking } from "../../utils/path-safety";
 import { collectFiles, loadCompiledRules } from "../utils";
 import { handleScanOutput, generateReportFiles, saveScanResults, checkFailCondition } from "../output";
 import { config } from "../../config";
@@ -27,6 +28,10 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
 
   const start = Date.now();
   const basePath = sanitizePath(resolve(targetPath));
+
+  // Reset path tracking for circular symlink detection
+  resetPathTracking();
+
   const rules = await loadCompiledRules(basePath);
 
   // Create indexed rule engine for faster lookups

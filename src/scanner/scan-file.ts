@@ -5,6 +5,7 @@ import { isProbablyBinary, readBytes, readText } from "../utils/fs";
 import { scanContent } from "./engine/rule-engine";
 import { runHeuristics } from "./engine/heuristics";
 import type { IndexedRuleEngine } from "./engine/indexed-rules";
+import { isSafePath, hasNullByte, detectSpecialFile } from "../utils/path-safety";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -20,6 +21,10 @@ const BINARY_EXTENSIONS = new Set([
 export function detectFileType(filePath: string): string | null {
   const base = basename(filePath);
   const ext = extname(filePath).toLowerCase();
+
+  // Check for special files without extensions
+  const specialType = detectSpecialFile(base);
+  if (specialType) return specialType;
 
   if (base === "SKILL.md") return "markdown";
   if (base === "manifest.json") return "manifest";
@@ -61,6 +66,15 @@ export async function scanFile(
   rules: CompiledRule[] | IndexedRuleEngine,
   options?: ScanOptions
 ): Promise<Finding[]> {
+  // Safety check: verify path is safe to scan
+  const safetyCheck = await isSafePath(filePath);
+  if (!safetyCheck.safe) {
+    if (options?.json !== true) {
+      console.warn(`⚠️  Skipping ${filePath}: ${safetyCheck.reason}`);
+    }
+    return [];
+  }
+
   const fileType = detectFileType(filePath);
   if (!fileType) return [];
 
@@ -82,6 +96,14 @@ export async function scanFile(
   const ext = extname(filePath).toLowerCase();
   if (ext === ".crx" || ext === ".xpi" || ext === ".zip") return [];
 
+  // Check for null bytes (binary data in text files)
+  if (await hasNullByte(filePath)) {
+    if (options?.json !== true) {
+      console.warn(`⚠️  Skipping ${filePath}: Contains null bytes (likely binary)`);
+    }
+    return [];
+  }
+
   // For unknown file types we still try scanning as text, but skip obvious binaries
   // to avoid noisy errors and wasted work (common in browser extensions).
   if (fileType === "text") {
@@ -94,9 +116,22 @@ export async function scanFile(
     }
   }
 
-  const content = await readText(filePath, MAX_BYTES);
-  const findings = scanContent(content, filePath, fileType, applicableRules);
-  const heuristicFindings = options?.useBehavioral ? runHeuristics(filePath, content, fileType) : [];
+  try {
+    const content = await readText(filePath, MAX_BYTES);
 
-  return [...findings, ...heuristicFindings];
+    // Skip empty files
+    if (content.trim().length === 0) {
+      return [];
+    }
+
+    const findings = scanContent(content, filePath, fileType, applicableRules);
+    const heuristicFindings = options?.useBehavioral ? runHeuristics(filePath, content, fileType) : [];
+
+    return [...findings, ...heuristicFindings];
+  } catch (err: any) {
+    if (options?.json !== true && err.code !== "ENOENT") {
+      console.warn(`⚠️  Error scanning ${filePath}: ${err.message}`);
+    }
+    return [];
+  }
 }
