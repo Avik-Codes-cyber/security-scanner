@@ -104,12 +104,6 @@ function buildFindingRows(
 ): string[] {
   const rows: string[] = [];
 
-  // Debug: Log confidence values
-  if (process.env.DEBUG && showConfidence && findings.length > 0) {
-    console.log(`\n[DEBUG] TUI rendering ${findings.length} findings with showConfidence=${showConfidence}`);
-    console.log(`[DEBUG] First finding confidence:`, findings[0].confidence);
-  }
-
   for (const finding of findings.slice(0, maxRows)) {
     const severity = colorizeSeverity(finding.severity);
     const badge = getBadgeForSeverity(finding.severity);
