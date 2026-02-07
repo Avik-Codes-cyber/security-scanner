@@ -1,8 +1,10 @@
 import { Database } from "bun:sqlite";
 import { mkdir } from "fs/promises";
 import { dirname } from "path";
-import type { Finding, ScanResult, Target, Severity } from "../scanner/types";
+import type { Finding, ScanResult, Severity } from "../scanner/types";
 import type { StoredScan, ScanQuery, ScanComparison } from "./scan-storage";
+import { SCHEMA_SQL, INSERT_SCAN_SQL, INSERT_FINDING_SQL, INSERT_TARGET_SQL } from "./db-schema";
+import { rowToScan, calculateSeverities, findingKey, generateScanId } from "./db-mappers";
 
 /**
  * SQLite-based storage for scan results with efficient querying and indexing.
@@ -27,65 +29,7 @@ export class DatabaseStorage {
     }
 
     private initSchema(): void {
-        // Create tables
-        this.db.exec(`
-      CREATE TABLE IF NOT EXISTS scans (
-        id TEXT PRIMARY KEY,
-        timestamp INTEGER NOT NULL,
-        hostname TEXT,
-        platform TEXT,
-        command TEXT,
-        target_path TEXT NOT NULL,
-        scanned_files INTEGER,
-        elapsed_ms INTEGER,
-        finding_count INTEGER,
-        critical_count INTEGER,
-        high_count INTEGER,
-        medium_count INTEGER,
-        low_count INTEGER,
-        tags TEXT,
-        notes TEXT,
-        metadata TEXT
-      );
-      
-      CREATE INDEX IF NOT EXISTS idx_timestamp ON scans(timestamp DESC);
-      CREATE INDEX IF NOT EXISTS idx_target ON scans(target_path);
-      CREATE INDEX IF NOT EXISTS idx_finding_count ON scans(finding_count);
-      
-      CREATE TABLE IF NOT EXISTS findings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        scan_id TEXT NOT NULL,
-        rule_id TEXT NOT NULL,
-        severity TEXT NOT NULL,
-        file TEXT NOT NULL,
-        line INTEGER,
-        message TEXT,
-        category TEXT,
-        remediation TEXT,
-        source TEXT,
-        FOREIGN KEY(scan_id) REFERENCES scans(id) ON DELETE CASCADE
-      );
-      
-      CREATE INDEX IF NOT EXISTS idx_scan_findings ON findings(scan_id);
-      CREATE INDEX IF NOT EXISTS idx_severity ON findings(severity);
-      CREATE INDEX IF NOT EXISTS idx_rule_id ON findings(rule_id);
-      
-      CREATE TABLE IF NOT EXISTS targets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        scan_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        name TEXT NOT NULL,
-        path TEXT NOT NULL,
-        meta TEXT,
-        FOREIGN KEY(scan_id) REFERENCES scans(id) ON DELETE CASCADE
-      );
-      
-      CREATE INDEX IF NOT EXISTS idx_scan_targets ON targets(scan_id);
-    `);
-    }
-
-    private generateId(): string {
-        return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+        this.db.run(SCHEMA_SQL);
     }
 
     async save(
@@ -100,7 +44,7 @@ export class DatabaseStorage {
         await mkdir(dirname(this.db.filename), { recursive: true });
 
         const scan: StoredScan = {
-            id: this.generateId(),
+            id: generateScanId(),
             timestamp: new Date().toISOString(),
             hostname: require("os").hostname(),
             platform: process.platform,
@@ -110,7 +54,7 @@ export class DatabaseStorage {
                 scannedFiles: result.scannedFiles,
                 elapsedMs: result.elapsedMs,
                 findingCount: result.findings.length,
-                severities: this.calculateSeverities(result.findings),
+                severities: calculateSeverities(result.findings),
             },
             targets: result.targets,
             findings: result.findings,
@@ -120,14 +64,7 @@ export class DatabaseStorage {
 
         const tx = this.db.transaction(() => {
             // Insert scan record
-            const insertScan = this.db.prepare(
-                `INSERT INTO scans (
-          id, timestamp, hostname, platform, command, target_path,
-          scanned_files, elapsed_ms, finding_count,
-          critical_count, high_count, medium_count, low_count,
-          tags, notes, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            );
+            const insertScan = this.db.prepare(INSERT_SCAN_SQL);
 
             insertScan.run(
                 scan.id,
@@ -149,11 +86,7 @@ export class DatabaseStorage {
             );
 
             // Insert findings
-            const findingStmt = this.db.prepare(
-                `INSERT INTO findings (
-          scan_id, rule_id, severity, file, line, message, category, remediation, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            );
+            const findingStmt = this.db.prepare(INSERT_FINDING_SQL);
 
             for (const finding of scan.findings) {
                 findingStmt.run(
@@ -170,9 +103,7 @@ export class DatabaseStorage {
             }
 
             // Insert targets
-            const targetStmt = this.db.prepare(
-                `INSERT INTO targets (scan_id, kind, name, path, meta) VALUES (?, ?, ?, ?, ?)`
-            );
+            const targetStmt = this.db.prepare(INSERT_TARGET_SQL);
 
             for (const target of scan.targets) {
                 targetStmt.run(
@@ -190,16 +121,6 @@ export class DatabaseStorage {
         await this.enforceRetentionPolicy();
 
         return scan;
-    }
-
-    private calculateSeverities(findings: Finding[]): Record<Severity, number> {
-        return findings.reduce(
-            (acc, finding) => {
-                acc[finding.severity] = (acc[finding.severity] || 0) + 1;
-                return acc;
-            },
-            { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 } as Record<Severity, number>
-        );
     }
 
     private async enforceRetentionPolicy(): Promise<void> {
@@ -224,49 +145,7 @@ export class DatabaseStorage {
         const findings = this.db.prepare(`SELECT * FROM findings WHERE scan_id = ?`).all(id) as any[];
         const targets = this.db.prepare(`SELECT * FROM targets WHERE scan_id = ?`).all(id) as any[];
 
-        return this.rowToScan(scanRow, findings, targets);
-    }
-
-    private rowToScan(scanRow: any, findingRows: any[], targetRows: any[]): StoredScan {
-        const metadata = scanRow.metadata ? JSON.parse(scanRow.metadata) : {};
-
-        return {
-            id: scanRow.id,
-            timestamp: new Date(scanRow.timestamp).toISOString(),
-            hostname: scanRow.hostname,
-            platform: scanRow.platform,
-            command: scanRow.command,
-            targetPath: scanRow.target_path,
-            summary: {
-                scannedFiles: scanRow.scanned_files,
-                elapsedMs: scanRow.elapsed_ms,
-                findingCount: scanRow.finding_count,
-                severities: {
-                    CRITICAL: scanRow.critical_count,
-                    HIGH: scanRow.high_count,
-                    MEDIUM: scanRow.medium_count,
-                    LOW: scanRow.low_count,
-                },
-            },
-            targets: targetRows.map((t) => ({
-                kind: t.kind,
-                name: t.name,
-                path: t.path,
-                meta: t.meta ? JSON.parse(t.meta) : undefined,
-            })),
-            findings: findingRows.map((f) => ({
-                ruleId: f.rule_id,
-                severity: f.severity,
-                message: f.message,
-                file: f.file,
-                line: f.line || undefined,
-                category: f.category || undefined,
-                remediation: f.remediation || undefined,
-                source: f.source || undefined,
-            })),
-            tags: scanRow.tags ? JSON.parse(scanRow.tags) : undefined,
-            notes: scanRow.notes || undefined,
-        };
+        return rowToScan(scanRow, findings, targets);
     }
 
     async listAll(): Promise<StoredScan[]> {
@@ -278,7 +157,7 @@ export class DatabaseStorage {
             const findings = this.db.prepare(`SELECT * FROM findings WHERE scan_id = ?`).all(scanRow.id) as any[];
             const targets = this.db.prepare(`SELECT * FROM targets WHERE scan_id = ?`).all(scanRow.id) as any[];
 
-            scans.push(this.rowToScan(scanRow, findings, targets));
+            scans.push(rowToScan(scanRow, findings, targets));
         }
 
         return scans;
@@ -335,7 +214,7 @@ export class DatabaseStorage {
             const findings = this.db.prepare(`SELECT * FROM findings WHERE scan_id = ?`).all(scanRow.id) as any[];
             const targets = this.db.prepare(`SELECT * FROM targets WHERE scan_id = ?`).all(scanRow.id) as any[];
 
-            const scan = this.rowToScan(scanRow, findings, targets);
+            const scan = rowToScan(scanRow, findings, targets);
 
             // Filter by tags if specified
             if (query.tags && query.tags.length > 0) {
@@ -378,7 +257,7 @@ export class DatabaseStorage {
         const findings = this.db.prepare(`SELECT * FROM findings WHERE scan_id = ?`).all(scanRow.id) as any[];
         const targets = this.db.prepare(`SELECT * FROM targets WHERE scan_id = ?`).all(scanRow.id) as any[];
 
-        return this.rowToScan(scanRow, findings, targets);
+        return rowToScan(scanRow, findings, targets);
     }
 
     async compare(baselineId: string, currentId: string): Promise<ScanComparison | null> {
@@ -388,10 +267,10 @@ export class DatabaseStorage {
         if (!baseline || !current) return null;
 
         const baselineFindings = new Map(
-            baseline.findings.map((f) => [this.findingKey(f), f])
+            baseline.findings.map((f) => [findingKey(f), f])
         );
         const currentFindings = new Map(
-            current.findings.map((f) => [this.findingKey(f), f])
+            current.findings.map((f) => [findingKey(f), f])
         );
 
         const added: Finding[] = [];
@@ -430,10 +309,6 @@ export class DatabaseStorage {
             unchanged,
             severityChanges,
         };
-    }
-
-    private findingKey(finding: Finding): string {
-        return `${finding.ruleId}|${finding.file}|${finding.line ?? ""}|${finding.message}`;
     }
 
     async getStats(): Promise<{
