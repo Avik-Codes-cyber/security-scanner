@@ -97,34 +97,29 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
     })),
   ];
 
-  // If user explicitly requested extensions/skills but none found, exit
-  if ((options.includeExtensions || options.includeIDEExtensions) && targets.length === 0) {
-    console.error("❌ No extensions found. Stopping scan.");
-    console.log("\nTip: Make sure you have browser extensions or IDE extensions installed.");
+  // If no targets found at all, exit
+  if (targets.length === 0) {
+    console.error("❌ No targets found to scan. Stopping.");
+    console.log("\nSearched for:");
+    console.log("  • Skills (SKILL.md files)");
+    if (options.includeExtensions) {
+      console.log("  • Browser extensions");
+    }
+    if (options.includeIDEExtensions) {
+      console.log("  • IDE extensions");
+    }
+    console.log("\nTip: Make sure you're in the correct directory or use --system to scan user-level skill folders.");
     process.exit(1);
   }
 
   // Plan what files to scan for each target
-  const scanPlans = targets.length
-    ? await Promise.all(
-      targets.map(async (target) => ({
-        name: target.name,
-        path: target.path,
-        files: await collectFiles([target.path], { includeDocs: true }),
-      }))
-    )
-    : [
-      {
-        name: "root",
-        path: basePath,
-        files: await collectFiles([basePath], { includeDocs: false }),
-      },
-    ];
-
-  // Inform if scanning root directory as fallback
-  if (targets.length === 0) {
-    console.log(`No skills found. Scanning root directory: ${basePath}`);
-  }
+  const scanPlans = await Promise.all(
+    targets.map(async (target) => ({
+      name: target.name,
+      path: target.path,
+      files: await collectFiles([target.path], { includeDocs: true }),
+    }))
+  );
 
   const totalFiles = scanPlans.reduce((sum, plan) => sum + plan.files.length, 0);
 
