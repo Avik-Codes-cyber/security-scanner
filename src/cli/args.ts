@@ -251,6 +251,24 @@ export function parseArgs(argv: string[]): ParsedArgs {
         options.reportFormats = formats;
       }
     }
+    else if (arg === "--show-confidence") {
+      options.showConfidence = true;
+    }
+    else if (arg === "--min-confidence") {
+      const value = args.shift();
+      const num = Number(value);
+      if (value && !isNaN(num) && num >= 0 && num <= 1) {
+        options.minConfidence = num;
+        options.showConfidence = true; // Auto-enable confidence display
+      }
+    } else if (arg.startsWith("--min-confidence=")) {
+      const value = extractFlagValue(arg);
+      const num = Number(value);
+      if (value && !isNaN(num) && num >= 0 && num <= 1) {
+        options.minConfidence = num;
+        options.showConfidence = true; // Auto-enable confidence display
+      }
+    }
     else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);

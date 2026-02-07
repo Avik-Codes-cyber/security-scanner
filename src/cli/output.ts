@@ -18,9 +18,9 @@ export interface OutputOptions {
  */
 export async function handleScanOutput(
   result: ScanResult,
-  options: OutputOptions
+  options: OutputOptions & { showConfidence?: boolean }
 ): Promise<void> {
-  const { format, output, tuiEnabled } = options;
+  const { format, output, tuiEnabled, showConfidence } = options;
 
   let outputText: string | null = null;
 
@@ -38,7 +38,7 @@ export async function handleScanOutput(
     if (!tuiEnabled) {
       console.log(formatSummary(result));
       console.log("");
-      console.log(renderTable(result.findings));
+      console.log(renderTable(result.findings, showConfidence));
     } else {
       console.log(formatSummary(result));
     }

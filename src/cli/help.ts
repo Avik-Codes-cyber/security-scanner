@@ -43,6 +43,8 @@ Options:
   --use-behavioral  Enable behavioral heuristic engine
   --no-behavioral   Disable behavioral heuristic engine
   --enable-meta     Enable meta-analyzer (false-positive filtering)
+  --show-confidence Show confidence scores for each finding (0-100%)
+  --min-confidence <n>  Filter findings below confidence threshold (0.0-1.0, e.g., 0.6 for 60%)
 
 MCP Options (mcp remote):
   --bearer-token <t>   Bearer token (Authorization: Bearer <t>)
@@ -66,6 +68,8 @@ Examples:
   securityscanner interactive /path/to/skill
   securityscanner scan /path/to/skill --use-behavioral
   securityscanner scan /path/to/skill --enable-meta
+  securityscanner scan /path/to/skill --show-confidence
+  securityscanner scan /path/to/skill --min-confidence 0.7
   securityscanner scan /path/to/skill --report-dir ./reports
   securityscanner scan /path/to/skill --report-dir ./reports --report-format html,json,csv
   securityscanner scan-all /path/to/skills --recursive --use-behavioral

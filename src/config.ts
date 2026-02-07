@@ -13,6 +13,8 @@ export type ScannerConfig = {
     enableCache: boolean;
     cacheMaxAge: number; // milliseconds
     cacheDir?: string;
+    cacheMaxEntries: number; // Maximum cache entries (LRU eviction)
+    cacheMaxSizeMB: number; // Maximum cache size in MB
 
     // Storage
     storageBackend: "json" | "sqlite";
@@ -23,6 +25,16 @@ export type ScannerConfig = {
     maxFileSize: number; // bytes
     enableStreamingForLargeFiles: boolean;
     streamingThreshold: number; // bytes
+
+    // Safety limits (prevent memory exhaustion)
+    maxTotalFindings: number; // Maximum total findings across all files
+    maxFindingsPerFile: number; // Maximum findings per file
+    regexTimeoutMs: number; // Regex execution timeout
+
+    // MCP retry configuration
+    mcpMaxRetries: number; // Maximum retry attempts for MCP calls
+    mcpRetryDelayMs: number; // Base delay between retries (exponential backoff)
+    mcpTimeoutMs: number; // Timeout for MCP requests
 };
 
 function parseEnvBoolean(value: string | undefined, defaultValue: boolean): boolean {
@@ -59,6 +71,14 @@ export function loadConfig(): ScannerConfig {
             7 * 24 * 60 * 60 * 1000 // 7 days
         ),
         cacheDir: process.env.SCANNER_CACHE_DIR,
+        cacheMaxEntries: parseEnvNumber(
+            process.env.SCANNER_CACHE_MAX_ENTRIES,
+            10000 // 10k files
+        ),
+        cacheMaxSizeMB: parseEnvNumber(
+            process.env.SCANNER_CACHE_MAX_SIZE_MB,
+            100 // 100MB
+        ),
 
         // Storage (JSON by default for backwards compatibility)
         storageBackend: (process.env.SCANNER_STORAGE_BACKEND as "json" | "sqlite") || "json",
@@ -77,6 +97,34 @@ export function loadConfig(): ScannerConfig {
         streamingThreshold: parseEnvNumber(
             process.env.SCANNER_STREAMING_THRESHOLD,
             1 * 1024 * 1024 // 1MB
+        ),
+
+        // Safety limits (prevent memory exhaustion)
+        maxTotalFindings: parseEnvNumber(
+            process.env.SCANNER_MAX_TOTAL_FINDINGS,
+            10000 // 10k findings max
+        ),
+        maxFindingsPerFile: parseEnvNumber(
+            process.env.SCANNER_MAX_FINDINGS_PER_FILE,
+            100 // 100 findings per file
+        ),
+        regexTimeoutMs: parseEnvNumber(
+            process.env.SCANNER_REGEX_TIMEOUT_MS,
+            1000 // 1 second
+        ),
+
+        // MCP retry configuration
+        mcpMaxRetries: parseEnvNumber(
+            process.env.SCANNER_MCP_MAX_RETRIES,
+            3 // 3 retries
+        ),
+        mcpRetryDelayMs: parseEnvNumber(
+            process.env.SCANNER_MCP_RETRY_DELAY_MS,
+            1000 // 1 second base delay
+        ),
+        mcpTimeoutMs: parseEnvNumber(
+            process.env.SCANNER_MCP_TIMEOUT_MS,
+            30000 // 30 seconds
         ),
     };
 }

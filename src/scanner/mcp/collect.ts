@@ -1,9 +1,12 @@
 import type { McpInitialize, McpListResult, McpPrompt, McpResource, McpTool } from "./types.ts";
 import { isMethodNotFound, rpc } from "./client-http.ts";
+import { config } from "../../config";
 
 export type McpCollectOptions = {
   headers?: Record<string, string>;
   timeoutMs?: number;
+  maxRetries?: number;
+  retryDelayMs?: number;
   scan?: Array<"tools" | "prompts" | "resources" | "instructions">;
   readResources?: boolean;
   allowedMimeTypes?: string[];
@@ -28,7 +31,7 @@ async function listAll<T>(
   url: string,
   method: string,
   key: string,
-  options: Pick<McpCollectOptions, "headers" | "timeoutMs">
+  options: Pick<McpCollectOptions, "headers" | "timeoutMs" | "maxRetries" | "retryDelayMs">
 ): Promise<T[]> {
   const out: T[] = [];
   let cursor: string | undefined = undefined;
@@ -36,7 +39,12 @@ async function listAll<T>(
     const params = cursor ? { cursor } : {};
     let raw: any;
     try {
-      raw = await rpc<any>(url, method, params, { headers: options.headers, timeoutMs: options.timeoutMs });
+      raw = await rpc<any>(url, method, params, {
+        headers: options.headers,
+        timeoutMs: options.timeoutMs ?? config.mcpTimeoutMs,
+        maxRetries: options.maxRetries ?? config.mcpMaxRetries,
+        retryDelayMs: options.retryDelayMs ?? config.mcpRetryDelayMs,
+      });
     } catch (err) {
       if (isMethodNotFound(err)) return [];
       throw err;
@@ -50,7 +58,7 @@ async function listAll<T>(
   return out;
 }
 
-async function bestEffortInitialize(url: string, options: Pick<McpCollectOptions, "headers" | "timeoutMs">) {
+async function bestEffortInitialize(url: string, options: Pick<McpCollectOptions, "headers" | "timeoutMs" | "maxRetries" | "retryDelayMs">) {
   try {
     const result = await rpc<any>(
       url,
@@ -60,7 +68,12 @@ async function bestEffortInitialize(url: string, options: Pick<McpCollectOptions
         capabilities: {},
         clientInfo: { name: "Security Scanner", version: "0.1.0" },
       },
-      { headers: options.headers, timeoutMs: options.timeoutMs }
+      {
+        headers: options.headers,
+        timeoutMs: options.timeoutMs ?? config.mcpTimeoutMs,
+        maxRetries: options.maxRetries ?? config.mcpMaxRetries,
+        retryDelayMs: options.retryDelayMs ?? config.mcpRetryDelayMs,
+      }
     );
     const init: McpInitialize = {
       instructions: typeof result?.instructions === "string" ? result.instructions : undefined,
@@ -101,13 +114,20 @@ export async function collectFromServer(url: string, options?: McpCollectOptions
   };
 
   if (scan.has("instructions")) {
-    collected.initialize = await bestEffortInitialize(url, { headers: options?.headers, timeoutMs: options?.timeoutMs });
+    collected.initialize = await bestEffortInitialize(url, {
+      headers: options?.headers,
+      timeoutMs: options?.timeoutMs,
+      maxRetries: options?.maxRetries,
+      retryDelayMs: options?.retryDelayMs,
+    });
   }
 
   if (scan.has("tools")) {
     collected.tools = await listAll<McpTool>(url, "tools/list", "tools", {
       headers: options?.headers,
       timeoutMs: options?.timeoutMs,
+      maxRetries: options?.maxRetries,
+      retryDelayMs: options?.retryDelayMs,
     });
   }
 
@@ -115,6 +135,8 @@ export async function collectFromServer(url: string, options?: McpCollectOptions
     collected.prompts = await listAll<McpPrompt>(url, "prompts/list", "prompts", {
       headers: options?.headers,
       timeoutMs: options?.timeoutMs,
+      maxRetries: options?.maxRetries,
+      retryDelayMs: options?.retryDelayMs,
     });
   }
 
@@ -122,6 +144,8 @@ export async function collectFromServer(url: string, options?: McpCollectOptions
     collected.resources = await listAll<McpResource>(url, "resources/list", "resources", {
       headers: options?.headers,
       timeoutMs: options?.timeoutMs,
+      maxRetries: options?.maxRetries,
+      retryDelayMs: options?.retryDelayMs,
     });
   }
 
@@ -140,7 +164,12 @@ export async function collectFromServer(url: string, options?: McpCollectOptions
           url,
           "resources/read",
           { uri: resource.uri },
-          { headers: options?.headers, timeoutMs: options?.timeoutMs }
+          {
+            headers: options?.headers,
+            timeoutMs: options?.timeoutMs ?? config.mcpTimeoutMs,
+            maxRetries: options?.maxRetries ?? config.mcpMaxRetries,
+            retryDelayMs: options?.retryDelayMs ?? config.mcpRetryDelayMs,
+          }
         );
       } catch (err) {
         if (isMethodNotFound(err)) break;

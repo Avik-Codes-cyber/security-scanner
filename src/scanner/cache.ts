@@ -19,13 +19,25 @@ export class ScanCache {
     private ruleVersion: string;
     private maxAge: number; // milliseconds
     private dirty: boolean;
+    private maxEntries: number;
+    private maxSizeBytes: number;
+    private locks: Map<string, Promise<void>>; // Per-file locks for concurrent access
 
-    constructor(cacheDir?: string, ruleVersion: string = "1.0", maxAge: number = 7 * 24 * 60 * 60 * 1000) {
+    constructor(
+        cacheDir?: string,
+        ruleVersion: string = "1.0",
+        maxAge: number = 7 * 24 * 60 * 60 * 1000,
+        maxEntries: number = 10000,
+        maxSizeMB: number = 100
+    ) {
         this.cache = new Map();
         this.cacheDir = cacheDir || this.getDefaultCacheDir();
         this.ruleVersion = ruleVersion;
         this.maxAge = maxAge;
+        this.maxEntries = maxEntries;
+        this.maxSizeBytes = maxSizeMB * 1024 * 1024;
         this.dirty = false;
+        this.locks = new Map();
     }
 
     private getDefaultCacheDir(): string {
@@ -92,8 +104,15 @@ export class ScanCache {
 
     /**
      * Get cached findings for a file if it hasn't changed.
+     * Thread-safe with per-file locking.
      */
     async getCachedFindings(filePath: string): Promise<Finding[] | null> {
+        // Wait for any pending write operation on this file
+        const existingLock = this.locks.get(filePath);
+        if (existingLock) {
+            await existingLock;
+        }
+
         const cached = this.cache.get(filePath);
         if (!cached) return null;
 
@@ -124,9 +143,45 @@ export class ScanCache {
 
     /**
      * Store findings for a file in cache.
+     * Implements LRU eviction when cache limits are exceeded.
+     * Thread-safe with per-file locking to prevent race conditions.
      */
     async setCachedFindings(filePath: string, findings: Finding[]): Promise<void> {
+        // Wait for any existing operation on this file
+        const existingLock = this.locks.get(filePath);
+        if (existingLock) {
+            await existingLock;
+        }
+
+        // Create a new lock for this operation
+        const lockPromise = this.doSetCachedFindings(filePath, findings);
+        this.locks.set(filePath, lockPromise);
+
+        try {
+            await lockPromise;
+        } finally {
+            // Release the lock
+            this.locks.delete(filePath);
+        }
+    }
+
+    /**
+     * Internal method to actually set cached findings.
+     */
+    private async doSetCachedFindings(filePath: string, findings: Finding[]): Promise<void> {
         const hash = await this.hashFile(filePath);
+
+        // Check if we need to evict entries
+        if (this.cache.size >= this.maxEntries) {
+            this.evictOldestEntry();
+        }
+
+        // Check cache size and evict if needed
+        const estimatedSize = this.estimateCacheSize();
+        if (estimatedSize >= this.maxSizeBytes) {
+            this.evictOldestEntry();
+        }
+
         this.cache.set(filePath, {
             hash,
             findings,
@@ -134,6 +189,42 @@ export class ScanCache {
             ruleVersion: this.ruleVersion,
         });
         this.dirty = true;
+    }
+
+    /**
+     * Evict the oldest cache entry (LRU eviction).
+     */
+    private evictOldestEntry(): void {
+        if (this.cache.size === 0) return;
+
+        let oldestPath: string | null = null;
+        let oldestTimestamp = Infinity;
+
+        for (const [path, entry] of this.cache.entries()) {
+            if (entry.timestamp < oldestTimestamp) {
+                oldestTimestamp = entry.timestamp;
+                oldestPath = path;
+            }
+        }
+
+        if (oldestPath) {
+            this.cache.delete(oldestPath);
+            this.dirty = true;
+        }
+    }
+
+    /**
+     * Estimate total cache size in bytes.
+     */
+    private estimateCacheSize(): number {
+        let totalSize = 0;
+        for (const entry of this.cache.values()) {
+            // Rough estimate: hash (64 bytes) + findings array + timestamp (8 bytes) + ruleVersion (20 bytes)
+            totalSize += 92;
+            // Each finding: ~500 bytes average (file path, message, remediation, etc.)
+            totalSize += entry.findings.length * 500;
+        }
+        return totalSize;
     }
 
     /**
