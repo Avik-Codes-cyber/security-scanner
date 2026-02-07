@@ -7,6 +7,7 @@ export function printHelp() {
 Usage:
   securityscanner scan <path> [options]
   securityscanner scan-all <path> [options]
+  securityscanner interactive <path> [options]  (alias: i)
   securityscanner watch <path> [options]
   securityscanner mcp remote <serverUrl> [options]
   securityscanner mcp static [options]
@@ -62,6 +63,7 @@ MCP Options (mcp config / known-configs):
 
 Examples:
   securityscanner scan /path/to/skill
+  securityscanner interactive /path/to/skill
   securityscanner scan /path/to/skill --use-behavioral
   securityscanner scan /path/to/skill --enable-meta
   securityscanner scan /path/to/skill --report-dir ./reports
@@ -71,6 +73,7 @@ Examples:
   securityscanner scan . --extensions
   securityscanner scan . --report-dir /tmp/security-reports --report-format html
   securityscanner scan ./my-project --save --report-dir ./scans --report-format html,json
+  securityscanner i .                        Interactive mode (short alias)
   securityscanner mcp remote https://your-server/mcp --format json
   securityscanner mcp static --tools ./tools.json --format table
   securityscanner mcp known-configs

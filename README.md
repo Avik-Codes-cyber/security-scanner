@@ -33,6 +33,11 @@ securityscanner scan-all ./skills --fail-on-findings --format sarif --output res
 securityscanner scan . --extensions
 securityscanner watch .
 
+# Interactive mode - select targets and configure options interactively
+securityscanner interactive .
+securityscanner i .  # Short alias
+securityscanner i    # Will prompt for path and all options
+
 # Generate reports (HTML, JSON, CSV)
 securityscanner scan . --report-dir ./reports
 securityscanner scan . --report-dir ./reports --report-format html,json,csv
@@ -213,6 +218,123 @@ The Security Scanner includes an enhanced TUI that activates automatically in TT
 - **Elapsed Time** - Real-time timer showing how long the scan has taken
 
 Press `Ctrl+C` to safely interrupt the scan.
+
+## Interactive Mode
+
+The Security Scanner includes a fully interactive mode that guides you through the entire scanning process - from choosing what to scan to configuring options.
+
+### Features
+
+- **Path Input** - Enter the path to scan interactively (or provide it as an argument)
+- **Scan Type Selection** - Choose what to include: skills, system directories, browser extensions, IDE extensions
+- **Interactive Target Selection** - Choose which specific targets to scan from discovered items
+- **Multi-select Support** - Select multiple targets at once with keyboard navigation
+- **Guided Configuration** - Configure all scan options through intuitive prompts
+- **Visual Feedback** - Color-coded prompts and clear selection indicators
+- **Keyboard Navigation** - Full keyboard support (no mouse required)
+
+### Usage
+
+```bash
+# Start interactive mode (will prompt for path)
+securityscanner interactive
+
+# Start with a specific path
+securityscanner interactive /path/to/scan
+
+# Short alias
+securityscanner i
+securityscanner i .
+```
+
+### Keyboard Controls
+
+- `↑` / `↓` - Navigate up/down through options
+- `Space` - Toggle selection (in multi-select mode)
+- `Enter` - Confirm selection
+- `y` / `n` - Yes/No for confirmation prompts
+- `Ctrl+C` - Cancel and exit
+
+### Interactive Flow
+
+1. **Path Input** - Enter the directory path to scan (default: current directory)
+2. **Scan Type Selection** - Choose what to include:
+   - Skills (SKILL.md files)
+   - System skill directories (~/.codex/skills, etc.)
+   - Browser extensions (Chrome, Edge, Brave, Firefox)
+   - IDE extensions (VS Code, Cursor, JetBrains)
+   - Recursive search depth
+   - Extra skill directories
+3. **Target Discovery** - Automatically discovers all available targets based on your selections
+4. **Target Selection** - Choose specific targets or scan all
+5. **Option Configuration** - Optionally configure:
+   - Severity threshold (fail-on level)
+   - Output format (table, JSON, SARIF)
+   - Meta-analysis (false-positive filtering)
+   - Auto-fix (comment out issues)
+   - Save results with tags
+6. **Confirmation** - Review and confirm before scanning
+7. **Scan Execution** - Run the scan with your selections
+
+### Example Session
+
+```text
+🔍 Interactive Security Scanner
+
+? Enter path to scan: ./my-project
+
+✓ Scan path: /Users/dev/my-project
+
+? What would you like to scan? (Space to select, Enter to confirm)
+ ◉ Skills (SKILL.md files)
+ ◉ System skill directories (~/.codex/skills, ~/.cursor/skills, etc.)
+ ◯ Browser extensions (Chrome, Edge, Brave, Firefox)
+ ◉ IDE extensions (VS Code, Cursor, JetBrains)
+
+? Search recursively for all SKILL.md files? (slower but more thorough) (y/N) n
+? Add extra skill directories to scan? (y/N) n
+
+🔍 Discovering targets...
+
+✓ Found 5 target(s)
+
+🔍 Interactive Security Scanner
+
+? Scan all 5 target(s)? (Y/n) n
+? Select targets to scan: (Space to select, Enter to confirm)
+ ◉ my-skill-1 (skill - /path/to/skill1)
+ ◉ my-skill-2 (skill - /path/to/skill2)
+ ◯ system-skill (skill - ~/.codex/skills/system)
+ ◉ vscode-ext (ide-extension - /path/to/vscode)
+ ◯ cursor-ext (ide-extension - /path/to/cursor)
+
+? Configure scan options? (y/N) y
+? Fail on severity level:
+ ❯ None (don't fail)
+   Low
+   Medium
+   High
+   Critical
+
+? Output format:
+ ❯ Table (interactive)
+   JSON
+   SARIF
+
+? Enable meta-analysis (reduce false positives)? (Y/n) y
+? Auto-fix issues (comment out problematic lines)? (y/N) n
+? Save scan results to database? (y/N) y
+? Tags (comma-separated): release-check, pre-deploy
+
+? Proceed with scanning 3 target(s)? (Y/n) y
+
+✓ Found 3 target(s)
+[Scan proceeds...]
+```
+
+**For a complete walkthrough of all interactive features, see [INTERACTIVE_MODE.md](INTERACTIVE_MODE.md).**
+
+For more technical details, see [src/cli/interactive/README.md](src/cli/interactive/README.md).
 
 ## Example Output
 

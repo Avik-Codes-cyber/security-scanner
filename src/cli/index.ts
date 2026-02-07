@@ -25,8 +25,22 @@ export {
   runScan,
   watchAndScan,
   runHistoryCommand,
+  runInteractiveScan,
   runMcpRemoteScan,
   runMcpStaticScan,
   runMcpConfigScan,
   runMcpKnownConfigsScan,
 } from "./commands";
+
+// Interactive mode
+export {
+  runInteractiveSession,
+  promptScanPath,
+  promptScanType,
+  selectTargets,
+  configureScanOptions,
+  selectPrompt,
+  multiselectPrompt,
+  confirmPrompt,
+  inputPrompt,
+} from "./interactive";

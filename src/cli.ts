@@ -21,6 +21,7 @@ import {
   runScan,
   watchAndScan,
   runHistoryCommand,
+  runInteractiveScan,
   runMcpRemoteScan,
   runMcpStaticScan,
   runMcpConfigScan,
@@ -41,6 +42,9 @@ if (command === "scan") {
 } else if (command === "scan-all") {
   options.fullDepth = true;
   await runScan(targetPath, options);
+} else if (command === "interactive" || command === "i") {
+  // Interactive mode - path is optional, will be prompted if not provided
+  await runInteractiveScan(targetPath === "." ? undefined : targetPath, options);
 } else if (command === "watch") {
   await watchAndScan(targetPath, options);
 } else if (command === "history" || command === "hist") {
