@@ -39,8 +39,34 @@ export async function promptScanPath(defaultPath = "."): Promise<string> {
 /**
  * Prompt for scan type (what to include)
  */
-export async function promptScanType(): Promise<Partial<ScanOptions> & { skipCurrentPath?: boolean; customPath?: string }> {
-    const options: Partial<ScanOptions> & { skipCurrentPath?: boolean; customPath?: string } = {};
+export async function promptScanType(): Promise<Partial<ScanOptions> & {
+    skipCurrentPath?: boolean;
+    customPath?: string;
+    mcpType?: "known" | "config" | "remote" | "static";
+    mcpConfigPath?: string;
+    mcpServerUrl?: string;
+    mcpStaticFiles?: string[];
+    mcpBearerToken?: string;
+    mcpHeaders?: string[];
+    mcpScan?: string;
+    mcpReadResources?: boolean;
+    mcpMimeTypes?: string;
+    mcpMaxResourceBytes?: number;
+}> {
+    const options: Partial<ScanOptions> & {
+        skipCurrentPath?: boolean;
+        customPath?: string;
+        mcpType?: "known" | "config" | "remote" | "static";
+        mcpConfigPath?: string;
+        mcpServerUrl?: string;
+        mcpStaticFiles?: string[];
+        mcpBearerToken?: string;
+        mcpHeaders?: string[];
+        mcpScan?: string;
+        mcpReadResources?: boolean;
+        mcpMimeTypes?: string;
+        mcpMaxResourceBytes?: number;
+    } = {};
 
     // Ask what to scan
     const scanTypes = await multiselectPrompt(
@@ -100,6 +126,81 @@ export async function promptScanType(): Promise<Partial<ScanOptions> & { skipCur
                 "http://localhost:3000"
             );
             options.mcpServerUrl = serverUrl;
+
+            // Ask for authentication
+            const needsAuth = await confirmPrompt(
+                "Does this server require authentication?",
+                false
+            );
+
+            if (needsAuth) {
+                const authType = await selectPrompt(
+                    "Authentication type:",
+                    [
+                        { label: "Bearer token", value: "bearer" },
+                        { label: "Custom headers", value: "headers" },
+                    ]
+                );
+
+                if (authType === "bearer") {
+                    const token = await inputPrompt(
+                        "Bearer token",
+                        ""
+                    );
+                    if (token) {
+                        options.mcpBearerToken = token;
+                    }
+                } else if (authType === "headers") {
+                    const headersInput = await inputPrompt(
+                        "Custom headers (format: Key:Value, comma-separated)",
+                        ""
+                    );
+                    if (headersInput) {
+                        options.mcpHeaders = headersInput.split(",").map((h) => h.trim()).filter(Boolean);
+                    }
+                }
+            }
+
+            // Ask for scan options
+            const scanOptions = await multiselectPrompt(
+                "What to scan from MCP server?",
+                [
+                    { label: "Tools", value: "tools", selected: true },
+                    { label: "Prompts", value: "prompts", selected: true },
+                    { label: "Resources", value: "resources", selected: true },
+                ]
+            );
+            options.mcpScan = scanOptions.join(",");
+
+            // Ask if should read resource contents
+            if (scanOptions.includes("resources")) {
+                const readResources = await confirmPrompt(
+                    "Read resource contents? (may be slower)",
+                    false
+                );
+                options.mcpReadResources = readResources;
+
+                if (readResources) {
+                    const mimeTypes = await inputPrompt(
+                        "Allowed MIME types (comma-separated, empty for all)",
+                        ""
+                    );
+                    if (mimeTypes) {
+                        options.mcpMimeTypes = mimeTypes;
+                    }
+
+                    const maxBytes = await inputPrompt(
+                        "Max resource size in bytes (empty for default)",
+                        ""
+                    );
+                    if (maxBytes) {
+                        const parsed = parseInt(maxBytes, 10);
+                        if (!isNaN(parsed) && parsed > 0) {
+                            options.mcpMaxResourceBytes = parsed;
+                        }
+                    }
+                }
+            }
         } else if (mcpType === "static") {
             const staticFiles = await inputPrompt(
                 "Static JSON files (comma-separated)",

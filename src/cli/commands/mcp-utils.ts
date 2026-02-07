@@ -97,3 +97,83 @@ export function parseMcpConnectionOptions(mcp: McpCliOptions) {
 
     return { headers, scanList, allowedMimeTypes, maxResourceBytes };
 }
+
+/**
+ * Scan MCP targets using appropriate MCP scanning functions
+ * This is shared logic used by both interactive mode and regular MCP commands
+ */
+export async function scanMcpTargets(
+    mcpTargets: Array<{ kind: string; name: string; path: string; meta?: Record<string, unknown> }>,
+    options: ScanOptions
+): Promise<void> {
+    const { runMcpRemoteScan, runMcpStaticScan, runMcpRemoteMultiScan } = await import("./mcp");
+
+    // Group MCP targets by type
+    const remoteTargets = mcpTargets.filter(t => t.meta?.mcpType === "remote");
+    const staticTargets = mcpTargets.filter(t => t.meta?.mcpType === "static");
+    const configTargets = mcpTargets.filter(t => t.meta?.mcpType === "config" || t.meta?.mcpType === "known");
+
+    // Scan remote MCP servers
+    if (remoteTargets.length > 0) {
+        if (remoteTargets.length === 1) {
+            // Single remote server
+            const target = remoteTargets[0];
+            const mcpOptions: McpCliOptions = {
+                scan: (target.meta?.scan as string) || "tools,prompts,resources",
+                readResources: target.meta?.readResources as boolean || false,
+                headers: (target.meta?.headers as string[]) || [],
+                bearerToken: target.meta?.bearerToken as string,
+                mimeTypes: target.meta?.mimeTypes as string,
+                maxResourceBytes: target.meta?.maxResourceBytes as number,
+            };
+            await runMcpRemoteScan(target.path, options, mcpOptions);
+        } else {
+            // Multiple remote servers
+            const servers = remoteTargets.map(t => ({
+                name: t.name,
+                url: t.path,
+                sourceFile: t.meta?.sourceFile as string | undefined,
+            }));
+            // Use options from first target (they should all be the same in interactive mode)
+            const firstTarget = remoteTargets[0];
+            const mcpOptions: McpCliOptions = {
+                scan: (firstTarget.meta?.scan as string) || "tools,prompts,resources",
+                readResources: firstTarget.meta?.readResources as boolean || false,
+                headers: (firstTarget.meta?.headers as string[]) || [],
+                bearerToken: firstTarget.meta?.bearerToken as string,
+                mimeTypes: firstTarget.meta?.mimeTypes as string,
+                maxResourceBytes: firstTarget.meta?.maxResourceBytes as number,
+            };
+            await runMcpRemoteMultiScan(servers, options, mcpOptions);
+        }
+    }
+
+    // Scan static MCP files
+    for (const target of staticTargets) {
+        const mcpOptions: McpCliOptions = {
+            scan: "tools,prompts,resources",
+            readResources: false,
+            headers: [],
+            toolsFile: target.path,
+            promptsFile: target.path,
+            resourcesFile: target.path,
+            instructionsFile: target.path,
+        };
+        await runMcpStaticScan(options, mcpOptions);
+    }
+
+    // Scan config-based MCP servers
+    if (configTargets.length > 0) {
+        const servers = configTargets.map(t => ({
+            name: t.name,
+            url: t.path,
+            sourceFile: t.meta?.sourceFile as string | undefined,
+        }));
+        const mcpOptions: McpCliOptions = {
+            scan: "tools,prompts,resources",
+            readResources: false,
+            headers: [],
+        };
+        await runMcpRemoteMultiScan(servers, options, mcpOptions);
+    }
+}
