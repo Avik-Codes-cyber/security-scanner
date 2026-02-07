@@ -281,7 +281,23 @@ async function runScanWithSelectedTargets(
     const elapsedMs = Date.now() - start;
     tui.finish();
 
-    const filteredFindings = options.enableMeta ? applyMetaAnalyzer(findings) : findings;
+    let filteredFindings = options.enableMeta ? applyMetaAnalyzer(findings) : findings;
+
+    // Add confidence scores if requested
+    if (options.showConfidence) {
+        const { addConfidenceScores, filterByConfidence } = await import("../../scanner/confidence");
+        filteredFindings = addConfidenceScores(filteredFindings);
+
+        // Filter by minimum confidence if specified
+        if (options.minConfidence !== undefined) {
+            const beforeCount = filteredFindings.length;
+            filteredFindings = filterByConfidence(filteredFindings, options.minConfidence);
+            const filtered = beforeCount - filteredFindings.length;
+            if (filtered > 0) {
+                console.log(`\n📊 Filtered ${filtered} finding(s) below confidence threshold (${Math.round(options.minConfidence * 100)}%)`);
+            }
+        }
+    }
 
     const result: ScanResult = {
         targets: selectedTargets,
@@ -295,6 +311,7 @@ async function runScanWithSelectedTargets(
         format: outputFormat,
         output: options.output,
         tuiEnabled,
+        showConfidence: options.showConfidence,
     });
 
     checkFailCondition(result, options);

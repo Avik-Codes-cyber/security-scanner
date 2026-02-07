@@ -220,6 +220,24 @@ export async function configureScanOptions(
         }
     }
 
+    // Confidence scoring
+    const showConfidence = await confirmPrompt(
+        "Show confidence scores?",
+        currentOptions.showConfidence ?? false
+    );
+    options.showConfidence = showConfidence;
+
+    if (showConfidence) {
+        const minConfidenceInput = await inputPrompt(
+            "Minimum confidence threshold (0.0-1.0)",
+            currentOptions.minConfidence?.toString() ?? "0.0"
+        );
+        const minConfidence = parseFloat(minConfidenceInput);
+        if (!isNaN(minConfidence) && minConfidence >= 0 && minConfidence <= 1) {
+            options.minConfidence = minConfidence;
+        }
+    }
+
     return options;
 }
 

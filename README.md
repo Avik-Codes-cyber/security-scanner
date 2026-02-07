@@ -4,7 +4,10 @@ Security Scanner (`securityscanner`) is a high-performance Bun + TypeScript CLI 
 
 ## Features
 - **High Performance**: Parallel file scanning with worker threads, indexed rule engine, and file hash-based caching
+- **Confidence Scoring**: AI-powered confidence scores (0-100%) for each finding with filtering capabilities
 - **Flexible Storage**: Choose between JSON or SQLite backends for scan history
+- **Unicode Support**: Handles emoji, CJK characters, RTL text, and multiple encodings (UTF-8, UTF-16, Latin-1)
+- **Incremental Scanning**: Only rescans modified files based on timestamps or git diff
 - Recursive skill discovery across multiple agent ecosystems
 - Optional scanning of installed browser extensions (Chromium-based browsers like Chrome/Edge/Brave/Vivaldi/Opera/Arc where present; Firefox unpacked extensions only)
 - Optional scanning of installed IDE extensions (VS Code, Cursor, Windsurf, JetBrains family)
@@ -37,6 +40,11 @@ securityscanner watch .
 securityscanner interactive .
 securityscanner i .  # Short alias
 securityscanner i    # Will prompt for path and all options
+
+# Confidence scoring - show and filter by confidence
+securityscanner scan . --show-confidence
+securityscanner scan . --min-confidence 0.7  # Only show findings with 70%+ confidence
+securityscanner scan . --min-confidence 0.8 --format json
 
 # Generate reports (HTML, JSON, CSV)
 securityscanner scan . --report-dir ./reports
@@ -280,6 +288,57 @@ The Security Scanner includes an enhanced TUI that activates automatically in TT
 
 Press `Ctrl+C` to safely interrupt the scan.
 
+## Confidence Scoring
+
+The Security Scanner includes an intelligent confidence scoring system that helps you prioritize findings and reduce false positives.
+
+### How It Works
+
+Each finding is assigned a confidence score (0-100%) based on multiple factors:
+- **Source**: Signature-based findings (higher confidence) vs heuristic findings (lower confidence)
+- **Context**: Test files, comments, and file types affect confidence
+- **Severity**: Critical findings get additional scrutiny
+- **Entropy**: For secret detection, higher entropy = higher confidence
+- **Match specificity**: Longer, more specific matches score higher
+
+### Confidence Indicators
+
+- **● 80-100%** (Green) - High confidence, likely valid
+- **◐ 60-79%** (Cyan) - Medium confidence, review recommended
+- **◑ 40-59%** (Yellow) - Low confidence, may be false positive
+- **○ 0-39%** (Red) - Very low confidence, likely false positive
+
+### Usage Examples
+
+```bash
+# Show confidence scores for all findings
+securityscanner scan . --show-confidence
+
+# Filter out low-confidence findings (only show 70%+ confidence)
+securityscanner scan . --min-confidence 0.7
+
+# Strict mode: only show high-confidence findings (80%+)
+securityscanner scan . --min-confidence 0.8
+
+# Combine with other options
+securityscanner scan . --show-confidence --enable-meta --format json
+```
+
+### Benefits
+
+- **Reduce noise**: Filter out likely false positives automatically
+- **Prioritize work**: Focus on high-confidence findings first
+- **Better CI/CD**: Set confidence thresholds to fail builds only on reliable findings
+- **Learn patterns**: See why findings have low confidence to improve your code
+
+**Example Output**:
+```
+Severity  File           Rule                  Message                Line  Confidence
+--------  -------------  --------------------  ---------------------  ----  ----------
+CRITICAL  config.ts      SECRET_STRIPE_KEY     Stripe API key found   42    ● 90%
+HIGH      test/mock.ts   HIGH_ENTROPY_SECRET   High entropy string    15    ◑ 45%
+```
+
 ## Interactive Mode
 
 The Security Scanner includes a fully interactive mode that guides you through the entire scanning process - from choosing what to scan to configuring options.
@@ -334,6 +393,8 @@ securityscanner i .
    - Meta-analysis (false-positive filtering)
    - Auto-fix (comment out issues)
    - Save results with tags
+   - Confidence scores (show and filter by confidence)
+   - Minimum confidence threshold (0.0-1.0)
 6. **Confirmation** - Review and confirm before scanning
 7. **Scan Execution** - Run the scan with your selections
 
