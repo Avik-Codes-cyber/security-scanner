@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve, isAbsolute } from "path";
 import matter from "gray-matter";
 import type { Skill } from "./types.ts";
 import { dirExists, fileExists, isInSkippedDir, readText, sanitizePath } from "../utils/fs";
+import { SKIP_DIRS, LOCAL_SKILL_DIRS, SYSTEM_SKILL_DIRS } from "../constants";
 
 const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
 

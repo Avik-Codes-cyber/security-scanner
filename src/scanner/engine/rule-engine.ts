@@ -2,8 +2,9 @@ import { parse as parseYaml } from "yaml";
 import type { Finding, Rule, Severity } from "../types";
 import { readText } from "../../utils/fs";
 import { config } from "../../config";
+import { SCAN_LIMITS } from "../../constants";
 
-const MAX_FINDINGS_PER_RULE_PER_FILE = 20;
+const MAX_FINDINGS_PER_RULE_PER_FILE = SCAN_LIMITS.MAX_FINDINGS_PER_RULE_PER_FILE;
 
 export type CompiledRule = Rule & {
   _compiled: RegExp[];
