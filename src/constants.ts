@@ -28,7 +28,7 @@ export const SCAN_LIMITS = {
 // Directory and File Patterns
 // ============================================================================
 
-export const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"] as const;
+export const SKIP_DIRS = ["node_modules", ".git", "dist", "build", "__pycache__"];
 
 export const SCAN_EXTENSIONS = new Set([".py", ".ts", ".js", ".mjs", ".cjs", ".sh", ".bash"]);
 
@@ -203,4 +203,66 @@ export const FIREFOX_ROOTS = {
     darwin: ["Library", "Application Support", "Firefox"],
     win32: ["Mozilla", "Firefox"], // Uses APPDATA
     linux: [".mozilla", "firefox"],
+} as const;
+
+// ============================================================================
+// MCP Config Paths
+// ============================================================================
+
+export const MCP_WELL_KNOWN_CONFIGS = {
+    mac: [
+        "~/.codeium/windsurf/mcp_config.json",
+        "~/.cursor/mcp.json",
+        "~/.vscode/mcp.json",
+        "~/Library/Application Support/Code/User/settings.json",
+        "~/Library/Application Support/Code/User/mcp.json",
+        "~/Library/Application Support/Claude/claude_desktop_config.json",
+        "~/.claude.json",
+        "~/.gemini/settings.json",
+        "~/.kiro/settings/mcp.json",
+        "~/.gemini/antigravity/mcp_config.json",
+    ],
+    linux: [
+        "~/.codeium/windsurf/mcp_config.json",
+        "~/.cursor/mcp.json",
+        "~/.vscode/mcp.json",
+        "~/.config/Code/User/settings.json",
+        "~/.config/Code/User/mcp.json",
+        "~/.claude.json",
+        "~/.gemini/settings.json",
+        "~/.kiro/settings/mcp.json",
+        "~/.gemini/antigravity/mcp_config.json",
+    ],
+    windows: [
+        "~/.codeium/windsurf/mcp_config.json",
+        "~/.cursor/mcp.json",
+        "~/.vscode/mcp.json",
+        "~/AppData/Roaming/Code/User/settings.json",
+        "~/AppData/Roaming/Code/User/mcp.json",
+        "~/AppData/Roaming/Claude/claude_desktop_config.json",
+        "~/.claude.json",
+        "~/.gemini/settings.json",
+        "~/.kiro/settings/mcp.json",
+        "~/.gemini/antigravity/mcp_config.json",
+    ],
+} as const;
+
+// ============================================================================
+// IDE Extension Patterns
+// ============================================================================
+
+export const IDE_PATTERNS = {
+    /** Pattern for detecting AI-related keywords in extension descriptions */
+    AI_KEYWORD: /\b(ai|gpt|copilot|llm|language.model|chatgpt|claude|anthropic|openai|ollama|localai|codeium|tabnine|intellisense|assistant)\b/i,
+
+    /** Pattern for detecting AI-related extension names */
+    AI_EXTENSION: /copilot|chatgpt|claude|anthropic|codeium|tabnine|cody|continue|supermaven|cursor|ai|gpt|llm|assistant/i,
+
+    /** XML patterns for JetBrains plugin.xml parsing */
+    XML: {
+        ID: /<id>([^<]+)<\/id>/,
+        NAME: /<name>([^<]+)<\/name>/,
+        VERSION: /<version>([^<]+)<\/version>/,
+        VENDOR: /<vendor[^>]*>([^<]+)<\/vendor>/,
+    },
 } as const;

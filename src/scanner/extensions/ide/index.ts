@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "fs/promises";
 import { join } from "path";
 import { dirExists } from "../../../utils/fs";
+import { IDE_PATTERNS } from "../../../constants";
 
 export type IDEExtensionTarget = {
   name: string;
@@ -20,14 +21,14 @@ function homeDir(): string | null {
 
 // ── Pre-compiled regex for AI keyword matching (avoids re-creation per call) ──
 
-const AI_KEYWORD_PATTERN = /\b(ai|gpt|copilot|llm|language.model|chatgpt|claude|anthropic|openai|ollama|localai|codeium|tabnine|intellisense|assistant)\b/i;
-const AI_EXTENSION_PATTERN = /copilot|chatgpt|claude|anthropic|codeium|tabnine|cody|continue|supermaven|cursor|ai|gpt|llm|assistant/i;
+const AI_KEYWORD_PATTERN = IDE_PATTERNS.AI_KEYWORD;
+const AI_EXTENSION_PATTERN = IDE_PATTERNS.AI_EXTENSION;
 
 // Pre-compiled XML regexes (avoids re-compilation per plugin)
-const XML_ID_RE = /<id>([^<]+)<\/id>/;
-const XML_NAME_RE = /<name>([^<]+)<\/name>/;
-const XML_VERSION_RE = /<version>([^<]+)<\/version>/;
-const XML_VENDOR_RE = /<vendor[^>]*>([^<]+)<\/vendor>/;
+const XML_ID_RE = IDE_PATTERNS.XML.ID;
+const XML_NAME_RE = IDE_PATTERNS.XML.NAME;
+const XML_VERSION_RE = IDE_PATTERNS.XML.VERSION;
+const XML_VENDOR_RE = IDE_PATTERNS.XML.VENDOR;
 
 // ── Platform root resolution (computed once, cached) ──
 
