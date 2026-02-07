@@ -47,6 +47,29 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
   const extensions = options.includeExtensions ? await discoverBrowserExtensions(options.extraExtensionDirs) : [];
   const ideExtensions = options.includeIDEExtensions ? await discoverIDEExtensions(options.extraIDEExtensionDirs) : [];
 
+  // Inform about discovered targets
+  if (skills.length > 0) {
+    console.log(`✓ Found ${skills.length} skill(s)`);
+  } else if (!options.includeExtensions && !options.includeIDEExtensions) {
+    console.warn("⚠️  No skills found in the target directory.");
+  }
+
+  if (options.includeExtensions) {
+    if (extensions.length > 0) {
+      console.log(`✓ Found ${extensions.length} browser extension(s)`);
+    } else {
+      console.warn("⚠️  No browser extensions found. Install Chrome, Edge, Brave, or other Chromium-based browsers with extensions.");
+    }
+  }
+
+  if (options.includeIDEExtensions) {
+    if (ideExtensions.length > 0) {
+      console.log(`✓ Found ${ideExtensions.length} IDE extension(s)`);
+    } else {
+      console.warn("⚠️  No IDE extensions found. Install VS Code, Cursor, or other supported IDEs with extensions.");
+    }
+  }
+
   const targets: Target[] = [
     ...skills.map((s) => ({ kind: "skill" as const, name: s.name, path: s.path })),
     ...extensions.map((e) => ({
@@ -74,6 +97,13 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
     })),
   ];
 
+  // If user explicitly requested extensions/skills but none found, exit
+  if ((options.includeExtensions || options.includeIDEExtensions) && targets.length === 0) {
+    console.error("❌ No extensions found. Stopping scan.");
+    console.log("\nTip: Make sure you have browser extensions or IDE extensions installed.");
+    process.exit(1);
+  }
+
   // Plan what files to scan for each target
   const scanPlans = targets.length
     ? await Promise.all(
@@ -90,6 +120,11 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
         files: await collectFiles([basePath], { includeDocs: false }),
       },
     ];
+
+  // Inform if scanning root directory as fallback
+  if (targets.length === 0) {
+    console.log(`No skills found. Scanning root directory: ${basePath}`);
+  }
 
   const totalFiles = scanPlans.reduce((sum, plan) => sum + plan.files.length, 0);
 
