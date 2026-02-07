@@ -1,18 +1,23 @@
 import { resolve } from "path";
 import type { Finding, ScanOptions, ScanResult, Target } from "../../scanner/types";
 import { scanFile } from "../../scanner/scan-file";
-import { scanContentItem } from "../../scanner/engine/scan-content";
-import { applyMetaAnalyzer, summarizeFindings } from "../../scanner/report";
+import { summarizeFindings } from "../../scanner/report";
 import { collectFromServer } from "../../scanner/mcp/collect";
 import { loadStaticInputs } from "../../scanner/mcp/static";
 import { staticLabelFromFiles, virtualizeRemote, virtualizeStatic } from "../../scanner/mcp/virtualize";
 import { discoverWellKnownMcpConfigPaths } from "../../scanner/mcp/known-configs";
 import { loadAndExtractMcpServers } from "../../scanner/mcp/config";
-import { createTui } from "../../utils/tui";
 import { sanitizePath } from "../../utils/fs";
 import type { McpCliOptions } from "../types";
-import { loadCompiledRules, parseHeaderList, parseMcpScanList } from "../utils";
-import { handleScanOutput, checkFailCondition } from "../output";
+import { loadCompiledRules } from "../utils";
+import {
+  setupMcpTui,
+  scanMcpFiles,
+  applyMetaIfEnabled,
+  finalizeMcpScan,
+  disableFixForMcp,
+  parseMcpConnectionOptions,
+} from "./mcp-utils";
 
 /**
  * Run MCP remote scan against a server URL
@@ -28,30 +33,13 @@ export async function runMcpRemoteScan(
     return;
   }
 
-  if (options.fix) {
-    console.warn("Note: --fix is not supported for MCP targets (no local files to modify). Ignoring --fix.");
-    options.fix = false;
-  }
+  disableFixForMcp(options, "MCP targets (no local files to modify)");
 
   const start = Date.now();
   const basePath = sanitizePath(resolve("."));
   const rules = await loadCompiledRules(basePath);
 
-  const headers = parseHeaderList(mcp.headers ?? []);
-  if (mcp.bearerToken) {
-    headers["Authorization"] = `Bearer ${mcp.bearerToken}`;
-  }
-
-  const scanList = parseMcpScanList(mcp.scan);
-  const allowedMimeTypes = (mcp.mimeTypes ?? "text/plain,text/markdown,text/html,application/json")
-    .split(",")
-    .map((m) => m.trim())
-    .filter(Boolean);
-
-  const maxResourceBytes =
-    typeof mcp.maxResourceBytes === "number" && Number.isFinite(mcp.maxResourceBytes)
-      ? Math.max(1, Math.floor(mcp.maxResourceBytes))
-      : 1_048_576;
+  const { headers, scanList, allowedMimeTypes, maxResourceBytes } = parseMcpConnectionOptions(mcp);
 
   const collected = await collectFromServer(serverUrl, {
     headers,
@@ -73,36 +61,16 @@ export async function runMcpRemoteScan(
     readResources: Boolean(mcp.readResources),
   });
 
-  const totalFiles = files.length;
-  const outputFormat = options.format ?? (options.json ? "json" : "table");
-  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
-  const tui = createTui(tuiEnabled);
-  tui.start(totalFiles, 1);
-  tui.beginTarget(1, 1, host, totalFiles);
+  const { tui, outputFormat, tuiEnabled } = setupMcpTui(options, files.length, 1);
+  tui.beginTarget(1, 1, host, files.length);
 
-  const targetFindings: Finding[] = [];
-  for (const item of files) {
-    try {
-      const fileFindings = scanContentItem(item, rules, options);
-      if (fileFindings.length) {
-        targetFindings.push(...fileFindings);
-        tui.onFindings(fileFindings);
-      }
-    } finally {
-      tui.onFile(item.virtualPath);
-    }
-  }
-
-  const filteredTargetFindings = options.enableMeta ? applyMetaAnalyzer(targetFindings) : targetFindings;
-  if (options.enableMeta) tui.setCurrentFindings(filteredTargetFindings);
+  const targetFindings = scanMcpFiles(files, rules, options, tui);
+  const filteredFindings = applyMetaIfEnabled(targetFindings, options, tui);
 
   tui.completeTarget(
-    { name: host, files: totalFiles, findings: filteredTargetFindings.length, counts: summarizeFindings(filteredTargetFindings) },
-    filteredTargetFindings
+    { name: host, files: files.length, findings: filteredFindings.length, counts: summarizeFindings(filteredFindings) },
+    filteredFindings
   );
-
-  const elapsedMs = Date.now() - start;
-  tui.finish();
 
   const result: ScanResult = {
     targets: [
@@ -113,15 +81,12 @@ export async function runMcpRemoteScan(
         meta: { serverUrl, transport: "http", scannedObjects },
       },
     ] as Target[],
-    findings: filteredTargetFindings,
-    scannedFiles: totalFiles,
-    elapsedMs,
+    findings: filteredFindings,
+    scannedFiles: files.length,
+    elapsedMs: 0, // Set by finalizeMcpScan
   };
 
-  await handleScanOutput(result, { format: outputFormat, output: options.output, tuiEnabled });
-  checkFailCondition(result, options);
-
-  return result;
+  return finalizeMcpScan(result, options, outputFormat, tuiEnabled, tui, start);
 }
 
 /**
@@ -131,10 +96,7 @@ export async function runMcpStaticScan(
   options: ScanOptions,
   mcp: McpCliOptions
 ): Promise<ScanResult | undefined> {
-  if (options.fix) {
-    console.warn("Note: --fix is not supported for MCP static targets (no local code lines to modify). Ignoring --fix.");
-    options.fix = false;
-  }
+  disableFixForMcp(options, "MCP static targets (no local code lines to modify)");
 
   const start = Date.now();
   const basePath = sanitizePath(resolve("."));
@@ -162,36 +124,16 @@ export async function runMcpStaticScan(
     initialize: inputs.initialize,
   });
 
-  const totalFiles = files.length;
-  const outputFormat = options.format ?? (options.json ? "json" : "table");
-  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
-  const tui = createTui(tuiEnabled);
-  tui.start(totalFiles, 1);
-  tui.beginTarget(1, 1, host, totalFiles);
+  const { tui, outputFormat, tuiEnabled } = setupMcpTui(options, files.length, 1);
+  tui.beginTarget(1, 1, host, files.length);
 
-  const targetFindings: Finding[] = [];
-  for (const item of files) {
-    try {
-      const fileFindings = scanContentItem(item, rules, options);
-      if (fileFindings.length) {
-        targetFindings.push(...fileFindings);
-        tui.onFindings(fileFindings);
-      }
-    } finally {
-      tui.onFile(item.virtualPath);
-    }
-  }
-
-  const filteredTargetFindings = options.enableMeta ? applyMetaAnalyzer(targetFindings) : targetFindings;
-  if (options.enableMeta) tui.setCurrentFindings(filteredTargetFindings);
+  const targetFindings = scanMcpFiles(files, rules, options, tui);
+  const filteredFindings = applyMetaIfEnabled(targetFindings, options, tui);
 
   tui.completeTarget(
-    { name: host, files: totalFiles, findings: filteredTargetFindings.length, counts: summarizeFindings(filteredTargetFindings) },
-    filteredTargetFindings
+    { name: host, files: files.length, findings: filteredFindings.length, counts: summarizeFindings(filteredFindings) },
+    filteredFindings
   );
-
-  const elapsedMs = Date.now() - start;
-  tui.finish();
 
   const result: ScanResult = {
     targets: [
@@ -202,15 +144,12 @@ export async function runMcpStaticScan(
         meta: { sourceFiles: inputs.sourceFiles, transport: "http", scannedObjects },
       },
     ] as Target[],
-    findings: filteredTargetFindings,
-    scannedFiles: totalFiles,
-    elapsedMs,
+    findings: filteredFindings,
+    scannedFiles: files.length,
+    elapsedMs: 0, // Set by finalizeMcpScan
   };
 
-  await handleScanOutput(result, { format: outputFormat, output: options.output, tuiEnabled });
-  checkFailCondition(result, options);
-
-  return result;
+  return finalizeMcpScan(result, options, outputFormat, tuiEnabled, tui, start);
 }
 
 /**
@@ -227,27 +166,13 @@ export async function runMcpRemoteMultiScan(
     return;
   }
 
-  if (options.fix) {
-    console.warn("Note: --fix is not supported for MCP remote targets (no local files to modify). Ignoring --fix.");
-    options.fix = false;
-  }
+  disableFixForMcp(options, "MCP remote targets (no local files to modify)");
 
   const start = Date.now();
   const basePath = sanitizePath(resolve("."));
   const rules = await loadCompiledRules(basePath);
 
-  const headers = parseHeaderList(mcp.headers ?? []);
-  if (mcp.bearerToken) headers["Authorization"] = `Bearer ${mcp.bearerToken}`;
-
-  const scanList = parseMcpScanList(mcp.scan);
-  const allowedMimeTypes = (mcp.mimeTypes ?? "text/plain,text/markdown,text/html,application/json")
-    .split(",")
-    .map((m) => m.trim())
-    .filter(Boolean);
-  const maxResourceBytes =
-    typeof mcp.maxResourceBytes === "number" && Number.isFinite(mcp.maxResourceBytes)
-      ? Math.max(1, Math.floor(mcp.maxResourceBytes))
-      : 1_048_576;
+  const { headers, scanList, allowedMimeTypes, maxResourceBytes } = parseMcpConnectionOptions(mcp);
 
   // Collect everything first so the TUI can show an accurate total file count.
   const collectedPlans: Array<{
@@ -304,53 +229,31 @@ export async function runMcpRemoteMultiScan(
   }
 
   const totalFiles = collectedPlans.reduce((sum, p) => sum + p.files.length, 0);
-  const outputFormat = options.format ?? (options.json ? "json" : "table");
-  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
-  const tui = createTui(tuiEnabled);
-  tui.start(totalFiles, collectedPlans.length);
+  const { tui, outputFormat, tuiEnabled } = setupMcpTui(options, totalFiles, collectedPlans.length);
 
   const allFindings: Finding[] = [];
   for (let i = 0; i < collectedPlans.length; i++) {
     const plan = collectedPlans[i]!;
     tui.beginTarget(i + 1, collectedPlans.length, plan.target.name, plan.files.length);
 
-    const targetFindings: Finding[] = [];
-    for (const item of plan.files) {
-      try {
-        const fileFindings = scanContentItem(item, rules, options);
-        if (fileFindings.length) {
-          targetFindings.push(...fileFindings);
-          tui.onFindings(fileFindings);
-        }
-      } finally {
-        tui.onFile(item.virtualPath);
-      }
-    }
+    const targetFindings = scanMcpFiles(plan.files, rules, options, tui);
+    const filteredFindings = applyMetaIfEnabled(targetFindings, options, tui);
 
-    const filteredTargetFindings = options.enableMeta ? applyMetaAnalyzer(targetFindings) : targetFindings;
-    if (options.enableMeta) tui.setCurrentFindings(filteredTargetFindings);
-
-    allFindings.push(...filteredTargetFindings);
+    allFindings.push(...filteredFindings);
     tui.completeTarget(
-      { name: plan.target.name, files: plan.files.length, findings: filteredTargetFindings.length, counts: summarizeFindings(filteredTargetFindings) },
-      filteredTargetFindings
+      { name: plan.target.name, files: plan.files.length, findings: filteredFindings.length, counts: summarizeFindings(filteredFindings) },
+      filteredFindings
     );
   }
-
-  const elapsedMs = Date.now() - start;
-  tui.finish();
 
   const result: ScanResult = {
     targets: collectedPlans.map((p) => p.target),
     findings: allFindings,
     scannedFiles: totalFiles,
-    elapsedMs,
+    elapsedMs: 0, // Set by finalizeMcpScan
   };
 
-  await handleScanOutput(result, { format: outputFormat, output: options.output, tuiEnabled });
-  checkFailCondition(result, options);
-
-  return result;
+  return finalizeMcpScan(result, options, outputFormat, tuiEnabled, tui, start);
 }
 
 /**
@@ -375,42 +278,30 @@ export async function runMcpConfigScan(
     );
   }
 
-  if (options.fix) {
-    console.warn("Note: --fix is disabled for mcp config scans by default (to avoid editing user config files). Ignoring --fix.");
-    options.fix = false;
-  }
+  disableFixForMcp(options, "mcp config scans (to avoid editing user config files)");
 
   const start = Date.now();
   const basePath = sanitizePath(resolve("."));
   const rules = await loadCompiledRules(basePath);
 
-  const outputFormat = options.format ?? (options.json ? "json" : "table");
-  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
-  const tui = createTui(tuiEnabled);
-  tui.start(1, 1);
+  const { tui, outputFormat, tuiEnabled } = setupMcpTui(options, 1, 1);
   tui.beginTarget(1, 1, mcp.configPath, 1);
 
   const fileFindings = await scanFile(mcp.configPath, rules, options).catch(() => []);
   if (fileFindings.length) tui.onFindings(fileFindings);
   tui.onFile(mcp.configPath);
 
-  const filtered = options.enableMeta ? applyMetaAnalyzer(fileFindings) : fileFindings;
+  const filtered = applyMetaIfEnabled(fileFindings, options, tui);
   tui.completeTarget({ name: mcp.configPath, files: 1, findings: filtered.length, counts: summarizeFindings(filtered) }, filtered);
-
-  const elapsedMs = Date.now() - start;
-  tui.finish();
 
   const result: ScanResult = {
     targets: [{ kind: "path", name: "mcp-config", path: mcp.configPath, meta: { mcpConfig: true } }] as Target[],
     findings: filtered,
     scannedFiles: 1,
-    elapsedMs,
+    elapsedMs: 0, // Set by finalizeMcpScan
   };
 
-  await handleScanOutput(result, { format: outputFormat, output: options.output, tuiEnabled });
-  checkFailCondition(result, options);
-
-  return result;
+  return finalizeMcpScan(result, options, outputFormat, tuiEnabled, tui, start);
 }
 
 /**
@@ -435,26 +326,20 @@ export async function runMcpKnownConfigsScan(
     return await runMcpRemoteMultiScan(servers, options, mcp);
   }
 
-  if (options.fix) {
-    console.warn("Note: --fix is disabled for mcp known-configs scans by default (to avoid editing user config files). Ignoring --fix.");
-    options.fix = false;
-  }
+  disableFixForMcp(options, "mcp known-configs scans (to avoid editing user config files)");
 
   const start = Date.now();
   const basePath = sanitizePath(resolve("."));
   const rules = await loadCompiledRules(basePath);
 
-  const outputFormat = options.format ?? (options.json ? "json" : "table");
-  const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
-  const tui = createTui(tuiEnabled);
-  tui.start(configPaths.length, configPaths.length);
+  const { tui, outputFormat, tuiEnabled } = setupMcpTui(options, configPaths.length, configPaths.length);
 
   const findings: Finding[] = [];
   for (let i = 0; i < configPaths.length; i++) {
     const p = configPaths[i]!;
     tui.beginTarget(i + 1, configPaths.length, p, 1);
     const fileFindings = await scanFile(p, rules, options).catch(() => []);
-    const filtered = options.enableMeta ? applyMetaAnalyzer(fileFindings) : fileFindings;
+    const filtered = applyMetaIfEnabled(fileFindings, options, tui);
     if (filtered.length) {
       findings.push(...filtered);
       tui.onFindings(filtered);
@@ -463,18 +348,12 @@ export async function runMcpKnownConfigsScan(
     tui.completeTarget({ name: p, files: 1, findings: filtered.length, counts: summarizeFindings(filtered) }, filtered);
   }
 
-  const elapsedMs = Date.now() - start;
-  tui.finish();
-
   const result: ScanResult = {
     targets: configPaths.map((p) => ({ kind: "path", name: "mcp-config", path: p, meta: { mcpConfig: true } })) as Target[],
     findings,
     scannedFiles: configPaths.length,
-    elapsedMs,
+    elapsedMs: 0, // Set by finalizeMcpScan
   };
 
-  await handleScanOutput(result, { format: outputFormat, output: options.output, tuiEnabled });
-  checkFailCondition(result, options);
-
-  return result;
+  return finalizeMcpScan(result, options, outputFormat, tuiEnabled, tui, start);
 }
