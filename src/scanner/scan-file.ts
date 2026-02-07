@@ -4,6 +4,7 @@ import type { Finding, ScanOptions } from "./types.ts";
 import { isProbablyBinary, readBytes, readText } from "../utils/fs";
 import { scanContent } from "./engine/rule-engine";
 import { runHeuristics } from "./engine/heuristics";
+import type { IndexedRuleEngine } from "./engine/indexed-rules";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -55,14 +56,23 @@ export function detectFileType(filePath: string): string | null {
   return "text";
 }
 
-export async function scanFile(filePath: string, rules: CompiledRule[], options?: ScanOptions): Promise<Finding[]> {
+export async function scanFile(
+  filePath: string,
+  rules: CompiledRule[] | IndexedRuleEngine,
+  options?: ScanOptions
+): Promise<Finding[]> {
   const fileType = detectFileType(filePath);
   if (!fileType) return [];
+
+  // Get applicable rules for this file type
+  const applicableRules = Array.isArray(rules)
+    ? rules
+    : rules.getRulesForFileType(fileType);
 
   if (fileType === "binary") {
     const bytes = await readBytes(filePath, MAX_BYTES);
     if (isProbablyBinary(bytes)) {
-      return scanContent("binary", filePath, "binary", rules);
+      return scanContent("binary", filePath, "binary", applicableRules);
     }
     return [];
   }
@@ -85,7 +95,7 @@ export async function scanFile(filePath: string, rules: CompiledRule[], options?
   }
 
   const content = await readText(filePath, MAX_BYTES);
-  const findings = scanContent(content, filePath, fileType, rules);
+  const findings = scanContent(content, filePath, fileType, applicableRules);
   const heuristicFindings = options?.useBehavioral ? runHeuristics(filePath, content, fileType) : [];
 
   return [...findings, ...heuristicFindings];

@@ -3,12 +3,16 @@ import type { Finding, ScanOptions, ScanResult, Target } from "../../scanner/typ
 import { discoverSkills } from "../../scanner/discover";
 import { discoverBrowserExtensions, discoverIDEExtensions } from "../../scanner/extensions/index";
 import { scanFile } from "../../scanner/scan-file";
+import { scanFilesParallel } from "../../scanner/parallel-scanner";
+import { ScanCache } from "../../scanner/cache";
+import { IndexedRuleEngine } from "../../scanner/engine/indexed-rules";
 import { applyMetaAnalyzer, summarizeFindings } from "../../scanner/report";
 import { applyFixes } from "../../scanner/fix";
 import { createTui } from "../../utils/tui";
 import { sanitizePath } from "../../utils/fs";
 import { collectFiles, loadCompiledRules } from "../utils";
 import { handleScanOutput, generateReportFiles, saveScanResults, checkFailCondition } from "../output";
+import { config } from "../../config";
 
 /**
  * Run the main scan command
@@ -24,6 +28,15 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
   const start = Date.now();
   const basePath = sanitizePath(resolve(targetPath));
   const rules = await loadCompiledRules(basePath);
+
+  // Create indexed rule engine for faster lookups
+  const indexedRules = new IndexedRuleEngine(rules);
+
+  // Initialize cache if enabled
+  const cache = config.enableCache ? new ScanCache(config.cacheDir, "1.0", config.cacheMaxAge) : null;
+  if (cache) {
+    await cache.load();
+  }
 
   // Discover all targets
   const skills = await discoverSkills(basePath, {
@@ -87,34 +100,101 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
   tui.start(totalFiles, scanPlans.length);
 
   const findings: Finding[] = [];
-  const concurrency = Math.min(32, Math.max(4, Math.floor((navigator.hardwareConcurrency ?? 8) / 2)));
 
   // Scan each target
   for (let i = 0; i < scanPlans.length; i++) {
     const plan = scanPlans[i];
     tui.beginTarget(i + 1, scanPlans.length, plan.name, plan.files.length);
 
-    const skillFindings: Finding[] = [];
-    let index = 0;
+    let skillFindings: Finding[] = [];
 
-    const worker = async () => {
-      while (index < plan.files.length) {
-        const filePath = plan.files[index++];
-        try {
-          const fileFindings = await scanFile(filePath, rules, options);
-          if (fileFindings.length) {
-            skillFindings.push(...fileFindings);
-            tui.onFindings(fileFindings);
+    // Use parallel scanning if enabled and file count exceeds threshold
+    const useParallel = config.enableParallelScanning && plan.files.length >= config.parallelThreshold;
+
+    if (useParallel) {
+      // Parallel scanning with caching
+      const uncachedFiles: string[] = [];
+      const cachedFindings: Finding[] = [];
+
+      if (cache) {
+        // Check cache for each file
+        for (const filePath of plan.files) {
+          const cached = await cache.getCachedFindings(filePath);
+          if (cached) {
+            cachedFindings.push(...cached);
+            tui.onFile(filePath);
+          } else {
+            uncachedFiles.push(filePath);
           }
-        } catch {
-          // ignore unreadable file
-        } finally {
+        }
+      } else {
+        uncachedFiles.push(...plan.files);
+      }
+
+      // Scan uncached files in parallel
+      if (uncachedFiles.length > 0) {
+        const newFindings = await scanFilesParallel(uncachedFiles, indexedRules.getAllRules(), options);
+
+        // Update cache for newly scanned files
+        if (cache) {
+          for (const filePath of uncachedFiles) {
+            const fileFindings = newFindings.filter(f => f.file === filePath);
+            await cache.setCachedFindings(filePath, fileFindings);
+          }
+        }
+
+        skillFindings = [...cachedFindings, ...newFindings];
+
+        // Update TUI
+        for (const filePath of uncachedFiles) {
           tui.onFile(filePath);
         }
+        if (newFindings.length) {
+          tui.onFindings(newFindings);
+        }
+      } else {
+        skillFindings = cachedFindings;
+        if (cachedFindings.length) {
+          tui.onFindings(cachedFindings);
+        }
       }
-    };
+    } else {
+      // Sequential scanning with caching
+      const concurrency = Math.min(32, Math.max(4, Math.floor((navigator.hardwareConcurrency ?? 8) / 2)));
+      let index = 0;
 
-    await Promise.all(Array.from({ length: concurrency }, worker));
+      const worker = async () => {
+        while (index < plan.files.length) {
+          const filePath = plan.files[index++];
+          try {
+            // Check cache first
+            let fileFindings: Finding[] = [];
+            if (cache) {
+              const cached = await cache.getCachedFindings(filePath);
+              if (cached) {
+                fileFindings = cached;
+              } else {
+                fileFindings = await scanFile(filePath, indexedRules, options);
+                await cache.setCachedFindings(filePath, fileFindings);
+              }
+            } else {
+              fileFindings = await scanFile(filePath, indexedRules, options);
+            }
+
+            if (fileFindings.length) {
+              skillFindings.push(...fileFindings);
+              tui.onFindings(fileFindings);
+            }
+          } catch {
+            // ignore unreadable file
+          } finally {
+            tui.onFile(filePath);
+          }
+        }
+      };
+
+      await Promise.all(Array.from({ length: concurrency }, worker));
+    }
 
     const filteredSkillFindings = options.enableMeta ? applyMetaAnalyzer(skillFindings) : skillFindings;
 
@@ -135,6 +215,11 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
       },
       filteredSkillFindings
     );
+  }
+
+  // Save cache if enabled
+  if (cache) {
+    await cache.save();
   }
 
   const elapsedMs = Date.now() - start;
