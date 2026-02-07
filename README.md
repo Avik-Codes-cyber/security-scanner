@@ -447,6 +447,8 @@ securityscanner i .
 ? Auto-fix issues (comment out problematic lines)? (y/N) n
 ? Save scan results to database? (y/N) y
 ? Tags (comma-separated): release-check, pre-deploy
+? Show confidence scores? (y/N) y
+? Minimum confidence threshold (0.0-1.0): 0.6
 
 ? Proceed with scanning 3 target(s)? (Y/n) y
 
