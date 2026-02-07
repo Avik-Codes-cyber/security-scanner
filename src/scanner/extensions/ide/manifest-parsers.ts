@@ -1,6 +1,7 @@
 import { readFile, stat } from "fs/promises";
 import { join } from "path";
 import { IDE_PATTERNS } from "../../../constants";
+import { debugWarn } from "../../../utils/error-handling";
 
 const AI_KEYWORD_PATTERN = IDE_PATTERNS.AI_KEYWORD;
 const XML_ID_RE = IDE_PATTERNS.XML.ID;
@@ -52,9 +53,7 @@ async function resolveNLSString(extensionPath: string, value: string): Promise<s
         const key = value.slice(1, -1);
         return nls[key] || value;
     } catch (error) {
-        if (process.env.DEBUG) {
-            console.warn(`Warning: Failed to resolve NLS string "${value}" in ${extensionPath}:`, error instanceof Error ? error.message : String(error));
-        }
+        debugWarn(`Warning: Failed to resolve NLS string "${value}" in ${extensionPath}`, error);
         return value;
     }
 }
@@ -97,9 +96,7 @@ export async function parseVSCodeExtension(extensionPath: string): Promise<VSCod
             }
         };
     } catch (error) {
-        if (process.env.DEBUG) {
-            console.warn(`Warning: Failed to parse VS Code extension at ${extensionPath}:`, error instanceof Error ? error.message : String(error));
-        }
+        debugWarn(`Warning: Failed to parse VS Code extension at ${extensionPath}`, error);
         return null;
     }
 }
@@ -138,9 +135,7 @@ export async function parseZedExtension(extPath: string, entryName: string): Pro
             publisher: manifest.author,
         };
     } catch (error) {
-        if (process.env.DEBUG) {
-            console.warn(`Warning: Failed to parse Zed extension at ${extPath}:`, error instanceof Error ? error.message : String(error));
-        }
+        debugWarn(`Warning: Failed to parse Zed extension at ${extPath}`, error);
         return null;
     }
 }

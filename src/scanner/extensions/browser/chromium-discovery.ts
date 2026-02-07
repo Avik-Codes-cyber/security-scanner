@@ -2,6 +2,7 @@ import { readdir } from "fs/promises";
 import { join } from "path";
 import { dirExists } from "../../../utils/fs";
 import { BROWSER_PATHS } from "../../../constants";
+import { debugWarn } from "../../../utils/error-handling";
 import type { ExtensionTarget } from "./index";
 
 export async function listChromiumProfileDirs(userDataDir: string): Promise<Array<{ profile: string; path: string }>> {
@@ -28,9 +29,7 @@ export async function listChromiumProfileDirs(userDataDir: string): Promise<Arra
             if (await dirExists(extRoot)) results.push({ profile: name, path: join(userDataDir, name) });
         }
     } catch (error) {
-        if (process.env.DEBUG) {
-            console.warn(`Warning: Failed to list Chromium profile directories in ${userDataDir}:`, error instanceof Error ? error.message : String(error));
-        }
+        debugWarn(`Warning: Failed to list Chromium profile directories in ${userDataDir}`, error);
         return [];
     }
 
@@ -83,9 +82,7 @@ export async function discoverChromiumExtensions(root: { browser: string; path: 
             const entries = await readdir(extRoot, { withFileTypes: true });
             extIds = entries.filter((e) => e.isDirectory()).map((e) => e.name);
         } catch (error) {
-            if (process.env.DEBUG) {
-                console.warn(`Warning: Failed to read extensions directory ${extRoot}:`, error instanceof Error ? error.message : String(error));
-            }
+            debugWarn(`Warning: Failed to read extensions directory ${extRoot}`, error);
             continue;
         }
 
@@ -96,9 +93,7 @@ export async function discoverChromiumExtensions(root: { browser: string; path: 
                 const entries = await readdir(idDir, { withFileTypes: true });
                 versions = entries.filter((e) => e.isDirectory()).map((e) => e.name);
             } catch (error) {
-                if (process.env.DEBUG) {
-                    console.warn(`Warning: Failed to read extension versions in ${idDir}:`, error instanceof Error ? error.message : String(error));
-                }
+                debugWarn(`Warning: Failed to read extension versions in ${idDir}`, error);
                 continue;
             }
 

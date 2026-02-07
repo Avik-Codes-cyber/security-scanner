@@ -2,6 +2,7 @@ import { readdir } from "fs/promises";
 import { join } from "path";
 import { dirExists } from "../../../utils/fs";
 import { IDE_PATTERNS } from "../../../constants";
+import { debugWarn } from "../../../utils/error-handling";
 import { getAllRoots, type IDERoot } from "./platform-roots";
 import { parseVSCodeExtension, parseJetBrainsPlugin, parseZedExtension } from "./manifest-parsers";
 
@@ -51,10 +52,7 @@ async function discoverVSCodeExtensions(root: IDERoot): Promise<IDEExtensionTarg
 
     return results.filter((r): r is IDEExtensionTarget => r !== null);
   } catch (error) {
-    // Failed to read VS Code extensions directory
-    if (process.env.DEBUG) {
-      console.warn(`Warning: Failed to discover VS Code extensions in ${root.path}:`, error instanceof Error ? error.message : String(error));
-    }
+    debugWarn(`Warning: Failed to discover VS Code extensions in ${root.path}`, error);
     return [];
   }
 }
@@ -85,9 +83,7 @@ async function discoverJetBrainsPlugins(root: IDERoot): Promise<IDEExtensionTarg
 
     return results.filter((r): r is IDEExtensionTarget => r !== null);
   } catch (error) {
-    if (process.env.DEBUG) {
-      console.warn(`Warning: Failed to discover JetBrains plugins in ${root.path}:`, error instanceof Error ? error.message : String(error));
-    }
+    debugWarn(`Warning: Failed to discover JetBrains plugins in ${root.path}`, error);
     return [];
   }
 }
@@ -118,9 +114,7 @@ async function discoverZedExtensions(root: IDERoot): Promise<IDEExtensionTarget[
 
     return results.filter((r): r is IDEExtensionTarget => r !== null);
   } catch (error) {
-    if (process.env.DEBUG) {
-      console.warn(`Warning: Failed to discover Zed extensions in ${root.path}:`, error instanceof Error ? error.message : String(error));
-    }
+    debugWarn(`Warning: Failed to discover Zed extensions in ${root.path}`, error);
     return [];
   }
 }

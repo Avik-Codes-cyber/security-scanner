@@ -1,13 +1,11 @@
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
+import { getHomeDir } from "../../../utils/platform";
 import { dirExists } from "../../../utils/fs";
+import { debugWarn } from "../../../utils/error-handling";
 import { FIREFOX_ROOTS, BROWSER_PATHS } from "../../../constants";
 
 export type FirefoxProfile = { name?: string; path: string };
-
-function homeDir(): string | null {
-    return process.env.HOME ?? process.env.USERPROFILE ?? null;
-}
 
 function parseIni(raw: string): Record<string, Record<string, string>> {
     const sections: Record<string, Record<string, string>> = {};
@@ -34,7 +32,7 @@ function parseIni(raw: string): Record<string, Record<string, string>> {
 }
 
 export async function discoverFirefoxProfiles(): Promise<{ firefoxDir: string; profiles: FirefoxProfile[] } | null> {
-    const home = homeDir();
+    const home = getHomeDir();
     if (!home) return null;
 
     const firefoxDir =
@@ -55,9 +53,7 @@ export async function discoverFirefoxProfiles(): Promise<{ firefoxDir: string; p
     try {
         iniText = await readFile(profilesIniPath, "utf-8");
     } catch (error) {
-        if (process.env.DEBUG) {
-            console.warn(`Warning: Failed to read Firefox profiles.ini at ${profilesIniPath}:`, error instanceof Error ? error.message : String(error));
-        }
+        debugWarn(`Warning: Failed to read Firefox profiles.ini at ${profilesIniPath}`, error);
         iniText = null;
     }
 
@@ -86,9 +82,7 @@ export async function discoverFirefoxProfiles(): Promise<{ firefoxDir: string; p
                     profiles.push({ name: entry.name, path: join(profilesRoot, entry.name) });
                 }
             } catch (error) {
-                if (process.env.DEBUG) {
-                    console.warn(`Warning: Failed to read Firefox Profiles directory ${profilesRoot}:`, error instanceof Error ? error.message : String(error));
-                }
+                debugWarn(`Warning: Failed to read Firefox Profiles directory ${profilesRoot}`, error);
             }
         }
     }

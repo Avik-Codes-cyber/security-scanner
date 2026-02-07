@@ -8,6 +8,7 @@ import { ScanCache } from "../../scanner/cache";
 import { IndexedRuleEngine } from "../../scanner/engine/indexed-rules";
 import { applyMetaAnalyzer, summarizeFindings } from "../../scanner/report";
 import { applyFixes } from "../../scanner/fix";
+import { debugWarn } from "../../utils/error-handling";
 import { sanitizePath } from "../../utils/fs";
 import { resetPathTracking } from "../../utils/path-safety";
 import { collectFiles, loadCompiledRules } from "../utils";
@@ -195,10 +196,7 @@ export async function runScanInternal(
               tui.onFindings(findingsToAdd);
             }
           } catch (error) {
-            // Log file scanning errors in debug mode
-            if (process.env.DEBUG) {
-              console.warn(`Warning: Failed to scan file ${filePath}:`, error instanceof Error ? error.message : String(error));
-            }
+            debugWarn(`Warning: Failed to scan file ${filePath}`, error);
             // Continue scanning other files - individual file failures shouldn't stop the entire scan
           } finally {
             tui.onFile(filePath);

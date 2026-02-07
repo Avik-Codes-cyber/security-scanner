@@ -1,6 +1,7 @@
 import { readdir } from "fs/promises";
 import { join } from "path";
 import { dirExists } from "../../../utils/fs";
+import { debugWarn } from "../../../utils/error-handling";
 import { BROWSER_PATHS } from "../../../constants";
 import { getChromiumRoots } from "./platform-roots";
 import { discoverChromiumExtensions, listChromiumProfileDirs } from "./chromium-discovery";
@@ -38,9 +39,7 @@ async function discoverFirefoxExtensions(): Promise<ExtensionTarget[]> {
         });
       }
     } catch (error) {
-      if (process.env.DEBUG) {
-        console.warn(`Warning: Failed to read Firefox extensions directory ${extDir}:`, error instanceof Error ? error.message : String(error));
-      }
+      debugWarn(`Warning: Failed to read Firefox extensions directory ${extDir}`, error);
     }
   }
 

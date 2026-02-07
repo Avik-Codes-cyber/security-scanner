@@ -6,6 +6,7 @@
 
 import { resolve } from "path";
 import type { ScanOptions, Target } from "../../scanner/types";
+import { warn, debugWarn } from "../../utils/error-handling";
 import { discoverSkills } from "../../scanner/discover";
 import { discoverBrowserExtensions, discoverIDEExtensions } from "../../scanner/extensions/index";
 import { sanitizePath } from "../../utils/fs";
@@ -208,7 +209,7 @@ function cleanupStdin(): void {
         process.stdin.removeAllListeners('data');
         process.stdin.removeAllListeners('keypress');
     } catch (error) {
-        console.warn("Warning: Failed to remove stdin listeners:", error instanceof Error ? error.message : String(error));
+        warn("Warning: Failed to remove stdin listeners", error);
     }
 
     try {
@@ -217,14 +218,14 @@ function cleanupStdin(): void {
             process.stdin.setRawMode(false);
         }
     } catch (error) {
-        console.warn("Warning: Failed to restore stdin raw mode:", error instanceof Error ? error.message : String(error));
+        warn("Warning: Failed to restore stdin raw mode", error);
     }
 
     try {
         // Pause stdin
         process.stdin.pause();
     } catch (error) {
-        console.warn("Warning: Failed to pause stdin:", error instanceof Error ? error.message : String(error));
+        warn("Warning: Failed to pause stdin", error);
     }
 
     try {
@@ -233,8 +234,6 @@ function cleanupStdin(): void {
     } catch (error) {
         // This one is less critical - cursor visibility is cosmetic
         // Only log in debug mode or if verbose
-        if (process.env.DEBUG) {
-            console.warn("Warning: Failed to show cursor:", error instanceof Error ? error.message : String(error));
-        }
+        debugWarn("Warning: Failed to show cursor", error);
     }
 }

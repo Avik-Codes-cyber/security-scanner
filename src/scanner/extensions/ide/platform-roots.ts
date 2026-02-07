@@ -1,17 +1,14 @@
 import { join } from "path";
+import { getHomeDir } from "../../../utils/platform";
 
 export type IDERoot = { ide: string; path: string };
-
-function homeDir(): string | null {
-    return process.env.HOME ?? process.env.USERPROFILE ?? null;
-}
 
 let _cachedAllRoots: { vsCode: IDERoot[]; jetBrains: IDERoot[]; zed: IDERoot[] } | null = null;
 
 export function getAllRoots(): { vsCode: IDERoot[]; jetBrains: IDERoot[]; zed: IDERoot[] } {
     if (_cachedAllRoots) return _cachedAllRoots;
 
-    const home = homeDir();
+    const home = getHomeDir();
     const platform = process.platform;
 
     const vsCode: IDERoot[] = [];

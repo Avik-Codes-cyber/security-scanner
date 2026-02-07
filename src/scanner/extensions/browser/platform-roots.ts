@@ -1,16 +1,13 @@
 import { join } from "path";
+import { getHomeDir } from "../../../utils/platform";
 import {
     MAC_BROWSER_ROOTS,
     LINUX_BROWSER_ROOTS,
     WINDOWS_BROWSER_ROOTS,
 } from "../../../constants";
 
-function homeDir(): string | null {
-    return process.env.HOME ?? process.env.USERPROFILE ?? null;
-}
-
 export function macChromiumRoots(): Array<{ browser: string; path: string }> {
-    const home = homeDir();
+    const home = getHomeDir();
     if (!home) return [];
     return MAC_BROWSER_ROOTS.map(({ browser, path }) => ({
         browser,
@@ -19,7 +16,7 @@ export function macChromiumRoots(): Array<{ browser: string; path: string }> {
 }
 
 export function linuxChromiumRoots(): Array<{ browser: string; path: string }> {
-    const home = homeDir();
+    const home = getHomeDir();
     if (!home) return [];
     return LINUX_BROWSER_ROOTS.map(({ browser, path }) => ({
         browser,
