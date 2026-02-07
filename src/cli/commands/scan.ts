@@ -197,8 +197,12 @@ export async function runScanInternal(
               skillFindings.push(...findingsToAdd);
               tui.onFindings(findingsToAdd);
             }
-          } catch {
-            // ignore unreadable file
+          } catch (error) {
+            // Log file scanning errors in debug mode
+            if (process.env.DEBUG) {
+              console.warn(`Warning: Failed to scan file ${filePath}:`, error instanceof Error ? error.message : String(error));
+            }
+            // Continue scanning other files - individual file failures shouldn't stop the entire scan
           } finally {
             tui.onFile(filePath);
           }
@@ -207,7 +211,6 @@ export async function runScanInternal(
 
       await Promise.all(Array.from({ length: concurrency }, worker));
     }
-
     const filteredSkillFindings = options.enableMeta ? applyMetaAnalyzer(skillFindings) : skillFindings;
 
     if (options.fix && filteredSkillFindings.length > 0) {

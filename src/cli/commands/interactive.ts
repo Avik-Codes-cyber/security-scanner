@@ -207,19 +207,34 @@ function cleanupStdin(): void {
         // Remove all listeners
         process.stdin.removeAllListeners('data');
         process.stdin.removeAllListeners('keypress');
+    } catch (error) {
+        console.warn("Warning: Failed to remove stdin listeners:", error instanceof Error ? error.message : String(error));
+    }
 
+    try {
         // Restore normal mode
         if (process.stdin.isTTY) {
             process.stdin.setRawMode(false);
         }
+    } catch (error) {
+        console.warn("Warning: Failed to restore stdin raw mode:", error instanceof Error ? error.message : String(error));
+    }
 
+    try {
         // Pause stdin
         process.stdin.pause();
+    } catch (error) {
+        console.warn("Warning: Failed to pause stdin:", error instanceof Error ? error.message : String(error));
+    }
 
-        // Show cursor
+    try {
+        // Show cursor (always attempt this for better UX)
         process.stdout.write("\x1b[?25h");
-    } catch {
-        // Ignore cleanup errors
-
+    } catch (error) {
+        // This one is less critical - cursor visibility is cosmetic
+        // Only log in debug mode or if verbose
+        if (process.env.DEBUG) {
+            console.warn("Warning: Failed to show cursor:", error instanceof Error ? error.message : String(error));
+        }
     }
 }

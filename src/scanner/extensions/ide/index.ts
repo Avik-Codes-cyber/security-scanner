@@ -192,7 +192,11 @@ async function resolveNLSString(extensionPath: string, value: string): Promise<s
     const nls = JSON.parse(nlsContent) as Record<string, string>;
     const key = value.slice(1, -1); // Remove % from both sides
     return nls[key] || value;
-  } catch {
+  } catch (error) {
+    // NLS file not found or invalid - return original value
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to resolve NLS string "${value}" in ${extensionPath}:`, error instanceof Error ? error.message : String(error));
+    }
     return value;
   }
 }
@@ -236,7 +240,11 @@ async function parseVSCodeExtension(extensionPath: string): Promise<VSCodeExtens
         usesLanguageModel: isAIRelated || false,
       }
     };
-  } catch {
+  } catch (error) {
+    // Failed to parse package.json - extension is invalid
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to parse VS Code extension at ${extensionPath}:`, error instanceof Error ? error.message : String(error));
+    }
     return null;
   }
 }
@@ -274,7 +282,11 @@ async function discoverVSCodeExtensions(root: IDERoot): Promise<IDEExtensionTarg
     );
 
     return results.filter((r): r is IDEExtensionTarget => r !== null);
-  } catch {
+  } catch (error) {
+    // Failed to read VS Code extensions directory
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to discover VS Code extensions in ${root.path}:`, error instanceof Error ? error.message : String(error));
+    }
     return [];
   }
 }
@@ -317,7 +329,11 @@ async function discoverJetBrainsPlugins(root: IDERoot): Promise<IDEExtensionTarg
     );
 
     return results.filter((r): r is IDEExtensionTarget => r !== null);
-  } catch {
+  } catch (error) {
+    // Failed to read JetBrains plugins directory
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to discover JetBrains plugins in ${root.path}:`, error instanceof Error ? error.message : String(error));
+    }
     return [];
   }
 }
@@ -344,14 +360,22 @@ async function discoverZedExtensions(root: IDERoot): Promise<IDEExtensionTarget[
             version: manifest.version,
             publisher: manifest.author,
           };
-        } catch {
+        } catch (error) {
+          // Failed to parse extension.json for this Zed extension
+          if (process.env.DEBUG) {
+            console.warn(`Warning: Failed to parse Zed extension at ${extPath}:`, error instanceof Error ? error.message : String(error));
+          }
           return null;
         }
       })
     );
 
     return results.filter((r): r is IDEExtensionTarget => r !== null);
-  } catch {
+  } catch (error) {
+    // Failed to read Zed extensions directory
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to discover Zed extensions in ${root.path}:`, error instanceof Error ? error.message : String(error));
+    }
     return [];
   }
 }

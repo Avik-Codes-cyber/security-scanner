@@ -104,7 +104,11 @@ async function listChromiumProfileDirs(userDataDir: string): Promise<Array<{ pro
       // Fall back: include any directory that has Extensions/ under it.
       if (await dirExists(extRoot)) results.push({ profile: name, path: join(userDataDir, name) });
     }
-  } catch {
+  } catch (error) {
+    // Failed to read user data directory
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to list Chromium profile directories in ${userDataDir}:`, error instanceof Error ? error.message : String(error));
+    }
     return [];
   }
 
@@ -156,7 +160,11 @@ async function discoverChromiumExtensions(root: { browser: string; path: string 
     try {
       const entries = await readdir(extRoot, { withFileTypes: true });
       extIds = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    } catch {
+    } catch (error) {
+      // Failed to read extensions directory for this profile
+      if (process.env.DEBUG) {
+        console.warn(`Warning: Failed to read extensions directory ${extRoot}:`, error instanceof Error ? error.message : String(error));
+      }
       continue;
     }
 
@@ -166,7 +174,11 @@ async function discoverChromiumExtensions(root: { browser: string; path: string 
       try {
         const entries = await readdir(idDir, { withFileTypes: true });
         versions = entries.filter((e) => e.isDirectory()).map((e) => e.name);
-      } catch {
+      } catch (error) {
+        // Failed to read version directories for this extension
+        if (process.env.DEBUG) {
+          console.warn(`Warning: Failed to read extension versions in ${idDir}:`, error instanceof Error ? error.message : String(error));
+        }
         continue;
       }
 
@@ -234,7 +246,11 @@ async function discoverFirefoxProfiles(): Promise<{ firefoxDir: string; profiles
   let iniText: string | null = null;
   try {
     iniText = await readFile(profilesIniPath, "utf-8");
-  } catch {
+  } catch (error) {
+    // Failed to read Firefox profiles.ini
+    if (process.env.DEBUG) {
+      console.warn(`Warning: Failed to read Firefox profiles.ini at ${profilesIniPath}:`, error instanceof Error ? error.message : String(error));
+    }
     iniText = null;
   }
 
@@ -262,8 +278,11 @@ async function discoverFirefoxProfiles(): Promise<{ firefoxDir: string; profiles
           if (!entry.isDirectory()) continue;
           profiles.push({ name: entry.name, path: join(profilesRoot, entry.name) });
         }
-      } catch {
-        // ignore
+      } catch (error) {
+        // Failed to enumerate Firefox Profiles directory
+        if (process.env.DEBUG) {
+          console.warn(`Warning: Failed to read Firefox Profiles directory ${profilesRoot}:`, error instanceof Error ? error.message : String(error));
+        }
       }
     }
   }
@@ -295,8 +314,11 @@ async function discoverFirefoxExtensions(): Promise<ExtensionTarget[]> {
           id: entry.name,
         });
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      // Failed to read Firefox extensions directory
+      if (process.env.DEBUG) {
+        console.warn(`Warning: Failed to read Firefox extensions directory ${extDir}:`, error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
