@@ -185,22 +185,6 @@ HIGH      SKILL.md                PROMPT_INJECTION             System override  
 MEDIUM    package.json            INSTALL_SCRIPT               Auto-run postinstall   8     ◐ 65%
 ```
 
-## CI/CD Integration
-
-```bash
-# Fail build on high-severity findings
-securityscanner scan . --fail-on high --format sarif --output results.sarif
-
-# With confidence filtering
-securityscanner scan . --fail-on high --min-confidence 0.8
-```
-
-## Documentation
-
-ance tuning
-- [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) - Configuration reference
-- [INTERACTIVE_MODE.md](INTERACTIVE_MODE.md) - Interactive mode guide
-- [src/cli/interactive/README.md](src/cli/interactive/README.md) - Technical details
 
 ## License
 
