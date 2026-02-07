@@ -1,6 +1,7 @@
 import { parse as parseYaml } from "yaml";
 import type { Finding, Rule, Severity } from "../types";
 import { readText } from "../../utils/fs";
+import { config } from "../../config";
 
 const MAX_FINDINGS_PER_RULE_PER_FILE = 20;
 
@@ -113,6 +114,30 @@ function isExcluded(rule: CompiledRule, match: string): boolean {
   return rule._excludeCompiled.some((re) => re.test(match));
 }
 
+/**
+ * Execute regex with timeout protection to prevent ReDoS attacks.
+ * Returns null if timeout is exceeded.
+ */
+function execWithTimeout(regex: RegExp, content: string, timeoutMs: number): RegExpExecArray | null {
+  const startTime = Date.now();
+
+  try {
+    const match = regex.exec(content);
+
+    // Check if execution took too long
+    if (Date.now() - startTime > timeoutMs) {
+      console.warn(`⚠️  Regex timeout exceeded for pattern: ${regex.source.substring(0, 50)}...`);
+      return null;
+    }
+
+    return match;
+  } catch (error) {
+    // Regex execution error (e.g., stack overflow from catastrophic backtracking)
+    console.warn(`⚠️  Regex execution error: ${error}`);
+    return null;
+  }
+}
+
 export function scanContent(
   content: string,
   filePath: string,
@@ -130,8 +155,15 @@ export function scanContent(
     for (const regex of rule._compiled) {
       regex.lastIndex = 0;
       let match: RegExpExecArray | null = null;
+      const regexStartTime = Date.now();
 
-      while ((match = regex.exec(content)) !== null) {
+      while ((match = execWithTimeout(regex, content, config.regexTimeoutMs)) !== null) {
+        // Check total time spent on this regex
+        if (Date.now() - regexStartTime > config.regexTimeoutMs * 5) {
+          console.warn(`⚠️  Regex taking too long for rule ${rule.id}, stopping.`);
+          break;
+        }
+
         if (match[0].length === 0) {
           regex.lastIndex++;
           continue;

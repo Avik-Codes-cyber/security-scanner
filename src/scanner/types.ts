@@ -29,6 +29,8 @@ export type Finding = {
   category?: string;
   remediation?: string;
   source?: "signature" | "heuristic";
+  confidence?: number; // 0.0 to 1.0
+  confidenceReason?: string;
 };
 
 export type Skill = {
@@ -61,6 +63,8 @@ export type ScanOptions = {
   targetPath?: string;
   reportDir?: string;
   reportFormats?: ("json" | "html" | "csv")[];
+  showConfidence?: boolean; // Show confidence scores in output
+  minConfidence?: number; // Minimum confidence threshold (0.0-1.0)
 };
 
 export type ScanResult = {

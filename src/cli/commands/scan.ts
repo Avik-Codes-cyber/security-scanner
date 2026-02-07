@@ -38,7 +38,15 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
   const indexedRules = new IndexedRuleEngine(rules);
 
   // Initialize cache if enabled
-  const cache = config.enableCache ? new ScanCache(config.cacheDir, "1.0", config.cacheMaxAge) : null;
+  const cache = config.enableCache
+    ? new ScanCache(
+      config.cacheDir,
+      "1.0",
+      config.cacheMaxAge,
+      config.cacheMaxEntries,
+      config.cacheMaxSizeMB
+    )
+    : null;
   if (cache) {
     await cache.load();
   }
@@ -135,9 +143,19 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
   tui.start(totalFiles, scanPlans.length);
 
   const findings: Finding[] = [];
+  let totalFindingsReached = false;
 
   // Scan each target
   for (let i = 0; i < scanPlans.length; i++) {
+    // Check if we've reached the global findings limit
+    if (findings.length >= config.maxTotalFindings) {
+      totalFindingsReached = true;
+      console.warn(`\n⚠️  Maximum findings limit (${config.maxTotalFindings}) reached. Stopping scan.`);
+      console.warn("    This prevents memory exhaustion on large codebases.");
+      console.warn("    Consider using filters or scanning smaller directories.\n");
+      break;
+    }
+
     const plan = scanPlans[i];
     tui.beginTarget(i + 1, scanPlans.length, plan.name, plan.files.length);
 
@@ -170,22 +188,35 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
       if (uncachedFiles.length > 0) {
         const newFindings = await scanFilesParallel(uncachedFiles, indexedRules.getAllRules(), options);
 
-        // Update cache for newly scanned files
+        // Enforce per-file limits and update cache
         if (cache) {
           for (const filePath of uncachedFiles) {
-            const fileFindings = newFindings.filter(f => f.file === filePath);
+            let fileFindings = newFindings.filter(f => f.file === filePath);
+
+            // Enforce per-file limit
+            if (fileFindings.length > config.maxFindingsPerFile) {
+              fileFindings = fileFindings.slice(0, config.maxFindingsPerFile);
+              if (!options.json) {
+                console.warn(`⚠️  File ${filePath} exceeded ${config.maxFindingsPerFile} findings limit. Truncated.`);
+              }
+            }
+
             await cache.setCachedFindings(filePath, fileFindings);
           }
         }
 
-        skillFindings = [...cachedFindings, ...newFindings];
+        // Check total findings limit
+        const remainingCapacity = config.maxTotalFindings - findings.length;
+        const limitedNewFindings = newFindings.slice(0, remainingCapacity);
+
+        skillFindings = [...cachedFindings, ...limitedNewFindings];
 
         // Update TUI
         for (const filePath of uncachedFiles) {
           tui.onFile(filePath);
         }
-        if (newFindings.length) {
-          tui.onFindings(newFindings);
+        if (limitedNewFindings.length) {
+          tui.onFindings(limitedNewFindings);
         }
       } else {
         skillFindings = cachedFindings;
@@ -216,9 +247,25 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
               fileFindings = await scanFile(filePath, indexedRules, options);
             }
 
+            // Enforce per-file limit
+            if (fileFindings.length > config.maxFindingsPerFile) {
+              fileFindings = fileFindings.slice(0, config.maxFindingsPerFile);
+              if (!options.json) {
+                console.warn(`⚠️  File ${filePath} exceeded ${config.maxFindingsPerFile} findings limit. Truncated.`);
+              }
+            }
+
             if (fileFindings.length) {
-              skillFindings.push(...fileFindings);
-              tui.onFindings(fileFindings);
+              // Check total findings limit
+              const remainingCapacity = config.maxTotalFindings - findings.length - skillFindings.length;
+              if (remainingCapacity <= 0) {
+                break; // Stop scanning this target
+              }
+
+              // Only add findings up to the limit
+              const findingsToAdd = fileFindings.slice(0, remainingCapacity);
+              skillFindings.push(...findingsToAdd);
+              tui.onFindings(findingsToAdd);
             }
           } catch {
             // ignore unreadable file
@@ -260,7 +307,23 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
   const elapsedMs = Date.now() - start;
   tui.finish();
 
-  const filteredFindings = options.enableMeta ? applyMetaAnalyzer(findings) : findings;
+  let filteredFindings = options.enableMeta ? applyMetaAnalyzer(findings) : findings;
+
+  // Add confidence scores if requested
+  if (options.showConfidence) {
+    const { addConfidenceScores, filterByConfidence } = await import("../../scanner/confidence");
+    filteredFindings = addConfidenceScores(filteredFindings);
+
+    // Filter by minimum confidence if specified
+    if (options.minConfidence !== undefined) {
+      const beforeCount = filteredFindings.length;
+      filteredFindings = filterByConfidence(filteredFindings, options.minConfidence);
+      const filtered = beforeCount - filteredFindings.length;
+      if (filtered > 0) {
+        console.log(`\n📊 Filtered ${filtered} finding(s) below confidence threshold (${Math.round(options.minConfidence * 100)}%)`);
+      }
+    }
+  }
 
   const result: ScanResult = {
     targets: targets.length ? targets : [{ kind: "path" as const, name: "root", path: basePath }],
@@ -274,6 +337,7 @@ export async function runScan(targetPath: string, options: ScanOptions): Promise
     format: outputFormat,
     output: options.output,
     tuiEnabled,
+    showConfidence: options.showConfidence,
   });
 
   checkFailCondition(result, options);

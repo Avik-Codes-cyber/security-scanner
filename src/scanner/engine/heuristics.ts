@@ -8,29 +8,40 @@ const MAX_HEURISTIC_FINDINGS = 10;
 function shannonEntropy(value: string): number {
   if (value.length === 0) return 0;
 
+  // Use Array.from to properly handle Unicode characters (including emoji, surrogate pairs)
+  const chars = Array.from(value);
   const freq: Record<string, number> = {};
-  for (const ch of value) {
+
+  for (const ch of chars) {
     freq[ch] = (freq[ch] ?? 0) + 1;
   }
-  const len = value.length;
+
+  const len = chars.length;
   let entropy = 0;
+
   for (const count of Object.values(freq)) {
     const p = count / len;
     if (p > 0) {  // Avoid log2(0) which is -Infinity
       entropy -= p * Math.log2(p);
     }
   }
+
   return entropy;
 }
 
 function extractCandidateStrings(content: string): string[] {
   const candidates: string[] = [];
-  const regex = /[A-Za-z0-9+/_=\-]{20,}/g;
+
+  // Unicode-aware regex: matches ASCII alphanumeric and common secret characters
+  // \p{L} matches any Unicode letter, \p{N} matches any Unicode number
+  const regex = /[\p{L}\p{N}+/_=\-]{20,}/gu;
   let match: RegExpExecArray | null = null;
+
   while ((match = regex.exec(content)) !== null) {
     candidates.push(match[0]);
     if (candidates.length > 2000) break;
   }
+
   return candidates;
 }
 
