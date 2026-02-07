@@ -1,5 +1,7 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { isSafePath, resetPathTracking } from "./path-safety";
+import { tmpdir } from "os";
+import { join } from "path";
 
 describe("path-safety", () => {
     beforeEach(() => {
@@ -7,22 +9,25 @@ describe("path-safety", () => {
     });
 
     test("validates safe paths", async () => {
-        const result = await isSafePath("/tmp");
+        // Use tmpdir which exists on all platforms
+        const result = await isSafePath(tmpdir());
         expect(result.safe).toBe(true);
     });
 
     test("detects non-existent paths", async () => {
-        const result = await isSafePath("/non/existent/path/that/does/not/exist");
+        const nonExistent = join(tmpdir(), "non-existent-path-12345");
+        const result = await isSafePath(nonExistent);
         expect(result.safe).toBe(false);
         expect(result.reason).toBeTruthy();
     });
 
     test("resets path tracking", async () => {
-        await isSafePath("/tmp");
+        const testPath = tmpdir();
+        await isSafePath(testPath);
         resetPathTracking();
 
         // After reset, should work normally
-        const result = await isSafePath("/tmp");
+        const result = await isSafePath(testPath);
         expect(result.safe).toBe(true);
     });
 
