@@ -1,4 +1,6 @@
 import { stat } from "fs/promises";
+import { resolve, normalize } from "path";
+import { homedir } from "os";
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024; // 5MB
 
@@ -20,8 +22,24 @@ export async function dirExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Sanitize and normalize a file path for security
+ * - Removes null bytes
+ * - Expands home directory (~)
+ * - Normalizes path (resolves .., ., etc.)
+ * - Converts to absolute path
+ */
 export function sanitizePath(path: string): string {
-  return path.replace(/\0/g, "");
+  // Remove null bytes
+  let cleaned = path.replace(/\0/g, "");
+
+  // Expand home directory
+  if (cleaned.startsWith("~/") || cleaned === "~") {
+    cleaned = cleaned.replace(/^~/, homedir());
+  }
+
+  // Normalize and resolve to absolute path
+  return resolve(normalize(cleaned));
 }
 
 export async function readText(path: string, maxBytes = DEFAULT_MAX_BYTES): Promise<string> {

@@ -27,8 +27,7 @@ jobs:
         run: bun install
 
       - name: Run tests
-        run: bun test
-        continue-on-error: true
+        run: bun test --timeout 30000
 
       - name: Build binary
         run: bun build src/cli.ts --compile --outfile securityscanner
