@@ -166,8 +166,9 @@ export async function promptScanType(): Promise<Partial<ScanOptions> & {
                 "What to scan from MCP server?",
                 [
                     { label: "Tools", value: "tools", selected: true },
+                    { label: "Instructions", value: "instructions", selected: true },
                     { label: "Prompts", value: "prompts", selected: true },
-                    { label: "Resources", value: "resources", selected: true },
+                    { label: "Resources", value: "resources", selected: false },
                 ]
             );
             options.mcpScan = scanOptions.join(",");
