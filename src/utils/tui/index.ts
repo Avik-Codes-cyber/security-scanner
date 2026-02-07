@@ -80,14 +80,16 @@ function createActiveTui(): ScanUi {
     scheduled = null;
     lastRenderTime = Date.now();
 
-    const output = renderFrame(state);
+    const output = renderFrame(state, isFirstRender);
 
-    // Always clear screen and redraw from home to avoid line-wrapping drift.
     if (isFirstRender) {
-      process.stdout.write("\x1b[?25l");
+      // First render: hide cursor and clear screen
+      process.stdout.write("\x1b[?25l\x1b[H\x1b[2J" + output);
       isFirstRender = false;
+    } else {
+      // Subsequent renders: just move to home and overwrite
+      process.stdout.write("\x1b[H" + output);
     }
-    process.stdout.write("\x1b[H\x1b[2J" + output);
   };
 
   const scheduleRender = () => {
