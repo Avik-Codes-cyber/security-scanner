@@ -169,7 +169,7 @@ function buildCompletedSection(completed: TargetSummary[], innerWidth: number): 
 /**
  * Render the complete TUI frame
  */
-export function renderFrame(state: RenderState, showLogo: boolean = true): string {
+export function renderFrame(state: RenderState, showLogo: boolean = true, showFindings: boolean = true): string {
   const displayFindings = state.currentFindings.length > 0 ? state.currentFindings : state.lastFindings;
   const counts = summarizeFindings(displayFindings);
 
@@ -186,6 +186,24 @@ export function renderFrame(state: RenderState, showLogo: boolean = true): strin
   const progressText = buildProgressLine(state, innerWidth);
   const skillLine = buildTargetLine(state);
   const findingsPart = buildFindingsSummary(counts, displayFindings.length);
+
+  // Box borders
+  const top = `┌${"─".repeat(innerWidth)}┐`;
+  const mid = `├${"─".repeat(innerWidth)}┤`;
+  const bottom = `└${"─".repeat(innerWidth)}┘`;
+
+  // If not showing findings, just show progress
+  if (!showFindings) {
+    return [
+      ...(showLogo ? ["", ...logoLines, tagline, ""] : []),
+      top,
+      line(headerLine, innerWidth),
+      line(progressText, innerWidth),
+      line(skillLine, innerWidth),
+      line(findingsPart, innerWidth),
+      bottom,
+    ].join("\n");
+  }
 
   // Table columns
   const colSev = 12;
@@ -210,11 +228,6 @@ export function renderFrame(state: RenderState, showLogo: boolean = true): strin
 
   // Completed section
   const completedRows = buildCompletedSection(state.completed, innerWidth);
-
-  // Box borders
-  const top = `┌${"─".repeat(innerWidth)}┐`;
-  const mid = `├${"─".repeat(innerWidth)}┤`;
-  const bottom = `└${"─".repeat(innerWidth)}┘`;
 
   return [
     ...(showLogo ? ["", ...logoLines, tagline, ""] : []),

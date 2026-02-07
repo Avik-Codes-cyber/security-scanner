@@ -64,7 +64,7 @@ function createActiveTui(showConfidence: boolean = false): ScanUi {
 
   // Cleanup function to ensure proper terminal state restoration
   const cleanup = () => {
-    process.stdout.write("\x1b[?25h");
+    process.stdout.write("\x1b[?25h"); // Show cursor
   };
 
   // Register signal handlers for proper cleanup on interrupt
@@ -81,16 +81,16 @@ function createActiveTui(showConfidence: boolean = false): ScanUi {
     scheduled = null;
     lastRenderTime = Date.now();
 
-    const output = renderFrame(state, isFirstRender);
-
-    if (isFirstRender) {
-      // First render: hide cursor and clear screen
-      process.stdout.write("\x1b[?25l\x1b[H\x1b[2J" + output);
-      isFirstRender = false;
-    } else {
-      // Subsequent renders: clear screen and redraw to prevent artifacts
-      process.stdout.write("\x1b[H\x1b[2J" + output);
+    // Only render if finished
+    if (!finished) {
+      return;
     }
+
+    // Show findings only when finished
+    const output = renderFrame(state, true, true);
+
+    // Clear screen and show final results
+    process.stdout.write("\x1b[2J\x1b[H" + output);
   };
 
   const scheduleRender = () => {
@@ -155,12 +155,13 @@ function createActiveTui(showConfidence: boolean = false): ScanUi {
 
     finish() {
       endTime = Date.now();
+      finished = true; // Set finished before rendering to show findings table
       if (scheduled) {
         clearTimeout(scheduled);
         scheduled = null;
       }
+      // Render final results with findings table
       render();
-      finished = true;
       // Clean up terminal state
       cleanup();
       process.stdout.write("\n");
