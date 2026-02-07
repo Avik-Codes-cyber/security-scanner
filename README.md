@@ -202,4 +202,4 @@ ance tuning
 
 ## License
 
-See LICENSE file for details.
+Currently for Personal usage.
