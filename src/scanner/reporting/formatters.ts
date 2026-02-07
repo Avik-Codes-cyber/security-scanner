@@ -1,16 +1,5 @@
 import type { Finding, Severity } from "../types";
-
-const COLOR = {
-  reset: "\x1b[0m",
-  red: "\x1b[31m",
-  yellow: "\x1b[33m",
-  magenta: "\x1b[35m",
-  cyan: "\x1b[36m",
-  gray: "\x1b[90m",
-  bold: "\x1b[1m",
-  green: "\x1b[32m",
-  dim: "\x1b[2m",
-};
+import { COLOR } from "../../utils/tui/colors";
 
 export function colorizeSeverity(sev: Severity): string {
   switch (sev) {
@@ -31,7 +20,7 @@ export function colorizeConfidence(confidence?: number): string {
   if (confidence === undefined) return `${COLOR.gray}N/A${COLOR.reset}`;
 
   const percent = Math.round(confidence * 100);
-  let color = COLOR.gray;
+  let color: string = COLOR.gray;
   let icon = "○";
 
   if (confidence >= 0.8) {
