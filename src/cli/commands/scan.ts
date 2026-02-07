@@ -69,7 +69,7 @@ export async function runScanInternal(
   // Setup TUI
   const outputFormat = options.format ?? (options.json ? "json" : "table");
   const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
-  const tui = createTui(tuiEnabled);
+  const tui = createTui(tuiEnabled, options.showConfidence);
   tui.start(totalFiles, scanPlans.length);
 
   const findings: Finding[] = [];
@@ -213,22 +213,29 @@ export async function runScanInternal(
     }
     const filteredSkillFindings = options.enableMeta ? applyMetaAnalyzer(skillFindings) : skillFindings;
 
-    if (options.fix && filteredSkillFindings.length > 0) {
-      await applyFixes(filteredSkillFindings);
-    }
-    if (options.enableMeta) {
-      tui.setCurrentFindings(filteredSkillFindings);
+    // Add confidence scores if requested (before displaying in TUI)
+    let displayFindings = filteredSkillFindings;
+    if (options.showConfidence) {
+      const { addConfidenceScores } = await import("../../scanner/confidence");
+      displayFindings = addConfidenceScores(filteredSkillFindings);
     }
 
-    findings.push(...filteredSkillFindings);
+    if (options.fix && displayFindings.length > 0) {
+      await applyFixes(displayFindings);
+    }
+
+    // Update TUI with findings (with confidence scores if enabled)
+    tui.setCurrentFindings(displayFindings);
+
+    findings.push(...displayFindings);
     tui.completeTarget(
       {
         name: plan.name,
         files: plan.files.length,
-        findings: filteredSkillFindings.length,
-        counts: summarizeFindings(filteredSkillFindings),
+        findings: displayFindings.length,
+        counts: summarizeFindings(displayFindings),
       },
-      filteredSkillFindings
+      displayFindings
     );
   }
 
@@ -242,19 +249,14 @@ export async function runScanInternal(
 
   let filteredFindings = options.enableMeta ? applyMetaAnalyzer(findings) : findings;
 
-  // Add confidence scores if requested
-  if (options.showConfidence) {
-    const { addConfidenceScores, filterByConfidence } = await import("../../scanner/confidence");
-    filteredFindings = addConfidenceScores(filteredFindings);
-
-    // Filter by minimum confidence if specified
-    if (options.minConfidence !== undefined) {
-      const beforeCount = filteredFindings.length;
-      filteredFindings = filterByConfidence(filteredFindings, options.minConfidence);
-      const filtered = beforeCount - filteredFindings.length;
-      if (filtered > 0) {
-        console.log(`\n📊 Filtered ${filtered} finding(s) below confidence threshold (${Math.round(options.minConfidence * 100)}%)`);
-      }
+  // Filter by minimum confidence if specified (confidence scores already added during scan)
+  if (options.showConfidence && options.minConfidence !== undefined) {
+    const { filterByConfidence } = await import("../../scanner/confidence");
+    const beforeCount = filteredFindings.length;
+    filteredFindings = filterByConfidence(filteredFindings, options.minConfidence);
+    const filtered = beforeCount - filteredFindings.length;
+    if (filtered > 0) {
+      console.log(`\n📊 Filtered ${filtered} finding(s) below confidence threshold (${Math.round(options.minConfidence * 100)}%)`);
     }
   }
 
