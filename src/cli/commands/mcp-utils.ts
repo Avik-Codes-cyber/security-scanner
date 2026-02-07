@@ -1,21 +1,17 @@
 import type { Finding, ScanOptions, ScanResult } from "../../scanner/types";
-import { applyMetaAnalyzer, summarizeFindings } from "../../scanner/report";
+import { applyMetaAnalyzer } from "../../scanner/report";
 import { scanContentItem } from "../../scanner/engine/scan-content";
-import { createTui } from "../../utils/tui";
 import type { ScanUi } from "../../utils/tui/types";
 import type { McpCliOptions } from "../types";
 import { parseHeaderList, parseMcpScanList } from "../utils";
 import { handleScanOutput, checkFailCondition } from "../output";
+import { setupScanTui } from "./scan-utils";
 
 /**
- * Setup TUI for MCP scans
+ * Setup TUI for MCP scans (wrapper around shared setupScanTui)
  */
 export function setupMcpTui(options: ScanOptions, totalFiles: number, totalTargets: number) {
-    const outputFormat = options.format ?? (options.json ? "json" : "table");
-    const tuiEnabled = options.tui ?? (process.stdout.isTTY && outputFormat === "table");
-    const tui = createTui(tuiEnabled);
-    tui.start(totalFiles, totalTargets);
-    return { tui, outputFormat, tuiEnabled };
+    return setupScanTui(options, totalFiles, totalTargets, false);
 }
 
 /**
